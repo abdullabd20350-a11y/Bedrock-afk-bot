@@ -14,8 +14,8 @@ app.listen(PORT, () => {
 
 // 2. إعدادات اتصال البوت
 const client = bedrock.createClient({
-  host: 'abdnt4.aternos.me', 
-  port: 64541,              
+  host: 'thisisservero.falixsrv.me', 
+  port: 25199,              
   username: 'bbtr45yb', 
   offline: true             
 });
