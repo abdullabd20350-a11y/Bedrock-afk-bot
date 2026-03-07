@@ -1,62 +1,89 @@
 const bedrock = require('bedrock-protocol');
 const express = require('express');
-const path = require('path');
 const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// تخزين البوتات النشطة
+// Store active bots
 let activeBots = {};
 
-// --- الواجهة الرسومية البسيطة (HTML) ---
+// --- Dashboard HTML (LTR Design) ---
 app.get('/', (req, res) => {
     let botList = Object.keys(activeBots).map(name => `
-        <div style="border: 1px solid #ccc; padding: 10px; margin: 10px; border-radius: 8px;">
-            <strong>🤖 الاسم: ${name}</strong> | الحالة: <span style="color: green;">نشط</span>
-            <button onclick="stopBot('${name}')" style="background: red; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; margin-left: 10px;">إيقاف</button>
+        <div style="border: 1px solid #e0e0e0; padding: 15px; margin: 10px 0; border-radius: 10px; background: #fafafa; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong style="color: #1a73e8;">🤖 Name: ${name}</strong> 
+                <span style="margin-left: 15px; color: #28a745; font-size: 0.9em;">● Active</span>
+            </div>
+            <button onclick="stopBot('${name}')" style="background: #dc3545; color: white; border: none; padding: 8px 15px; cursor: pointer; border-radius: 6px; font-weight: bold;">Stop Bot</button>
         </div>
     `).join('');
 
     res.send(`
-        <body style="font-family: sans-serif; direction: rtl; padding: 20px; background: #f4f4f9;">
-            <h2>🚀 لوحة تحكم بوتات ماينكرافت (Kinga Dash)</h2>
-            <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-                <h3>إضافة بوت جديد</h3>
-                <form action="/start" method="POST">
-                    IP: <input type="text" name="host" required placeholder="example.aternos.me">
-                    Port: <input type="number" name="port" required placeholder="12345">
-                    Username: <input type="text" name="username" required placeholder="Bot_Name">
-                    <button type="submit" style="background: green; color: white; border: none; padding: 8px 15px; cursor: pointer; border-radius: 4px;">تشغيل البوت</button>
-                </form>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>Kinga Dash - MC Bot Control</title>
+        </head>
+        <body style="font-family: 'Segoe UI', Arial, sans-serif; direction: ltr; padding: 20px; background: #f4f7f9; color: #333;">
+            <div style="max-width: 900px; margin: auto;">
+                <h1 style="text-align: center; color: #202124; margin-bottom: 30px;">🚀 Minecraft Bot Manager (Kinga Dash)</h1>
+                
+                <div style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 40px;">
+                    <h3 style="margin-top: 0; border-bottom: 2px solid #f1f3f4; padding-bottom: 10px;">Add New Bot</h3>
+                    <form action="/start" method="POST" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Server IP:</label>
+                            <input type="text" name="host" required placeholder="example.aternos.me" style="width: 95%; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; outline: none;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Port:</label>
+                            <input type="number" name="port" required placeholder="12345" style="width: 95%; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; outline: none;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Bot Username:</label>
+                            <input type="text" name="username" required placeholder="Bot_Name" style="width: 95%; padding: 12px; border: 1px solid #dadce0; border-radius: 8px; outline: none;">
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button type="submit" style="width: 100%; background: #1a73e8; color: white; border: none; padding: 14px; cursor: pointer; border-radius: 8px; font-weight: bold; font-size: 1em; transition: 0.3s;">Launch Bot</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+                    <h3 style="margin-top: 0; border-bottom: 2px solid #f1f3f4; padding-bottom: 10px;">Currently Active</h3>
+                    <div id="botList" style="margin-top: 10px;">
+                        ${botList || '<p style="text-align: center; color: #70757a; padding: 20px;">No bots connected. Add one above! ⚡</p>'}
+                    </div>
+                </div>
+                
+                <p style="text-align: center; margin-top: 30px; color: #70757a; font-size: 0.85em;">Kinga Dash v2.0 | Keep your servers alive 24/7</p>
             </div>
-            <hr>
-            <h3>البوتات المشغلة حالياً:</h3>
-            <div id="botList">${botList || '<p>لا توجد بوتات نشطة حالياً.</p>'}</div>
 
             <script>
                 function stopBot(name) {
-                    fetch('/stop', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({username: name})
-                    }).then(() => location.reload());
+                    if(confirm('Are you sure you want to disconnect ' + name + '?')) {
+                        fetch('/stop', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({username: name})
+                        }).then(() => location.reload());
+                    }
                 }
             </script>
         </body>
+        </html>
     `);
 });
 
-// --- وظائف التحكم بالبوتات ---
+// --- Bot Logic & Control ---
 
-// 1. دالة تشغيل بوت جديد
 function startNewBot(host, port, username) {
-    if (activeBots[username]) {
-        console.log(`⚠️ البوت ${username} موجود بالفعل.`);
-        return;
-    }
+    if (activeBots[username]) return;
 
-    console.log(`📡 جاري تشغيل بوت جديد: ${username} على ${host}:${port}`);
+    console.log(`📡 [${username}] Attempting to connect to ${host}:${port}...`);
     
     const client = bedrock.createClient({
         host: host,
@@ -65,16 +92,12 @@ function startNewBot(host, port, username) {
         offline: true
     });
 
-    // إعداد البوت ككائن (Object)
-    activeBots[username] = {
-        client: client,
-        interval: null
-    };
+    activeBots[username] = { client: client, interval: null };
 
     client.on('spawn', () => {
-        console.log(`✅ [${username}] رسبن في السيرفر.`);
+        console.log(`✅ [${username}] Spawned successfully!`);
         
-        // حركة الدلع كل 3 دقائق
+        // Anti-AFK Logic (Random Move) every 3 minutes
         activeBots[username].interval = setInterval(() => {
             try {
                 if (!client.startGameData) return;
@@ -93,23 +116,22 @@ function startNewBot(host, port, username) {
                     input_mode: 'mouse', play_mode: 'normal', tick: 0n,
                     delta: { x: moveX, y: 0, z: moveZ }
                 });
-                console.log(`🏃‍♂️ [${username}] تحرك خطوة.`);
-            } catch (e) { console.log(`❌ خطأ حركة [${username}]:`, e.message); }
+                console.log(`🏃‍♂️ [${username}] Performed AFK-prevent movement.`);
+            } catch (e) { console.log(`❌ Error moving [${username}]:`, e.message); }
         }, 180000);
     });
 
     client.on('disconnect', (p) => {
-        console.log(`🔌 [${username}] انفصل: ${p.reason}`);
-        // إعادة اتصال تلقائي إذا لم يتم إيقافه يدوياً
+        console.log(`🔌 [${username}] Disconnected: ${p.reason}`);
         if (activeBots[username]) {
             setTimeout(() => startNewBot(host, port, username), 10000);
         }
     });
 
-    client.on('error', (e) => console.log(`⚠️ خطأ [${username}]:`, e.message));
+    client.on('error', (e) => console.log(`⚠️ [${username}] Error:`, e.message));
 }
 
-// --- الروابط (API Endpoints) ---
+// --- API Endpoints ---
 
 app.post('/start', (req, res) => {
     const { host, port, username } = req.body;
@@ -122,12 +144,11 @@ app.post('/stop', (req, res) => {
     if (activeBots[username]) {
         clearInterval(activeBots[username].interval);
         activeBots[username].client.disconnect();
-        delete activeBots[username]; // حذفه من القائمة النشطة
-        console.log(`🛑 تم إيقاف البوت [${username}] يدوياً.`);
+        delete activeBots[username];
+        console.log(`🛑 Bot [${username}] stopped manually.`);
     }
     res.sendStatus(200);
 });
 
-// تشغيل السيرفر
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Dashboard ready on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Kinga Dash active on port ${PORT}`));
