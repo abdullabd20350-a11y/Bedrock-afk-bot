@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: 'kinga-live-v7-final',
+    secret: 'kinga-final-ultra-fix',
     resave: false,
     saveUninitialized: true,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
@@ -21,7 +21,7 @@ function checkAuth(req, res, next) {
     next();
 }
 
-// واجهة المستخدم الاحترافية
+// دالة التصميم الأساسي
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
 <head>
@@ -42,10 +42,48 @@ const layout = (title, content, lang = 'ar') => `
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
         .btn-delete { background: #dc3545; color: white; }
+        .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
     </style>
 </head>
 <body>${content}</body></html>`;
 
+// --- صفحات تسجيل الدخول (تم الإصلاح هنا) ---
+app.get('/login', (req, res) => {
+    const isAr = (req.query.lang || 'ar') === 'ar';
+    res.send(layout(isAr ? 'دخول' : 'Login', `
+    <div class="auth-card">
+        <h2 style="color:#1a73e8; margin-bottom:25px;">Kinga Pro 🚀</h2>
+        <form action="/auth-login" method="POST">
+            <input name="username" placeholder="${isAr ? 'اسم المستخدم' : 'Username'}" required>
+            <input name="password" type="password" placeholder="${isAr ? 'كلمة المرور' : 'Password'}" required>
+            <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'دخول' : 'Login'}</button>
+        </form>
+        <p style="margin-top:20px; font-size:0.9em;">
+            ${isAr ? 'ليس لديك حساب؟' : "Don't have an account?"} 
+            <a href="/register?lang=${isAr?'ar':'en'}" style="color:#1a73e8; text-decoration:none; font-weight:bold;">${isAr ? 'إنشاء حساب' : 'Register'}</a>
+        </p>
+    </div>`, isAr ? 'ar' : 'en'));
+});
+
+app.get('/register', (req, res) => {
+    const isAr = (req.query.lang || 'ar') === 'ar';
+    res.send(layout(isAr ? 'تسجيل' : 'Register', `
+    <div class="auth-card">
+        <h2 style="color:#1a73e8; margin-bottom:25px;">${isAr ? 'حساب جديد' : 'New Account'}</h2>
+        <form action="/auth-register" method="POST">
+            <input name="username" placeholder="${isAr ? 'اسم المستخدم' : 'Username'}" required>
+            <input name="password" type="password" placeholder="${isAr ? 'كلمة المرور' : 'Password'}" required>
+            <input name="confirm" type="password" placeholder="${isAr ? 'تأكيد كلمة المرور' : 'Confirm Password'}" required>
+            <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'إنشاء الحساب' : 'Register'}</button>
+        </form>
+        <p style="margin-top:20px; font-size:0.9em;">
+            <a href="/login?lang=${isAr?'ar':'en'}" style="color:#1a73e8; text-decoration:none; font-weight:bold;">${isAr ? 'لديك حساب بالفعل؟ دخول' : 'Already have an account? Login'}</a>
+        </p>
+    </div>`, isAr ? 'ar' : 'en'));
+});
+
+// --- لوحة التحكم المباشرة ---
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
     const isAr = lang === 'ar';
@@ -64,7 +102,7 @@ app.get('/', checkAuth, (req, res) => {
             </div>
             
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                     <strong>📍 ${isAr?'الإحداثيات':'Coordinates'}:</strong>
                     <div class="coords-box">
                         <span>X: <b>${b.pos.x.toFixed(1)}</b></span>
@@ -86,25 +124,28 @@ app.get('/', checkAuth, (req, res) => {
         </div>`;
     }).join('');
 
-    res.send(layout('Kinga Live Dash', `
+    res.send(layout('Kinga Live Manager', `
     <div class="dashboard-card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h2>🚀 Kinga Live Manager</h2>
-            <a href="/logout" style="color:red; text-decoration:none; font-weight:bold;">${isAr?'خروج':'Logout'}</a>
+            <div style="display:flex; gap:15px; align-items:center;">
+                <a href="/set-lang?l=${isAr ? 'en' : 'ar'}" style="text-decoration:none; font-weight:bold;">${isAr ? 'English' : 'عربي'}</a>
+                <a href="/logout" style="color:red; text-decoration:none; font-weight:bold;">${isAr?'خروج':'Logout'}</a>
+            </div>
         </div>
-        <form action="/add" method="POST" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:20px 0;">
+        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0;">
             <select name="type"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
             <input name="botName" placeholder="${isAr?'اسم البوت':'Bot Name'}" required>
             <input name="host" placeholder="Server IP" required style="grid-column:span 2;">
             <input name="port" placeholder="Port" style="grid-column:span 2;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
-        <div id="botList">${botCards || '<p style="text-align:center;">No bots</p>'}</div>
+        <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات نشطة</p>'}</div>
     </div>
     <script>
-        function ctl(n,a){ fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>setTimeout(()=>location.reload(), 800));}
+        function ctl(n,a){ fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>setTimeout(()=>location.reload(), 1200));}
         
-        // تحديث العداد الحي (Live Timer) كل ثانية
+        // تحديث العداد الحي (Live Timer) كل ثانية في المتصفح
         setInterval(() => {
             document.querySelectorAll('[id^="timer-"]').forEach(el => {
                 const start = el.getAttribute('data-start');
@@ -117,21 +158,21 @@ app.get('/', checkAuth, (req, res) => {
             });
         }, 1000);
 
-        // تحديث الصفحة تلقائياً كل 10 ثوانٍ لجلب الإحداثيات والحالة
+        // تحديث البيانات (الإحداثيات والحالة) كل 10 ثوانٍ تلقائياً
         setInterval(() => {
-            if (document.body.innerText.includes('...') || document.body.innerText.includes('Online') || document.body.innerText.includes('متصل')) {
+            if (document.body.innerText.includes('Online') || document.body.innerText.includes('متصل') || document.body.innerText.includes('...')) {
                 location.reload();
             }
         }, 10000);
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// --- المنطق الخلفي المطور ---
+// --- المنطق البرمجي (Back-end) ---
 app.post('/control', checkAuth, (req, res) => {
     const { name, action } = req.body;
     const bot = activeBots[name];
     if (action === 'start' && !bot.connected) {
-        bot.connecting = true;
+        bot.connecting = true; // حالة جاري الانضمام
         if (bot.type === 'bedrock') {
             bot.client = bedrock.createClient({ host: bot.host, port: parseInt(bot.port), username: name, offline: true });
             bot.client.on('spawn', () => { 
@@ -139,6 +180,7 @@ app.post('/control', checkAuth, (req, res) => {
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
             });
             bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
         } else {
             const [h, p] = bot.host.split(':');
             bot.client = mineflayer.createBot({ host: h, port: p || 25565, username: name });
@@ -148,6 +190,7 @@ app.post('/control', checkAuth, (req, res) => {
             });
             bot.client.on('end', () => { bot.connected = false; bot.connecting = false; });
             bot.client.on('death', () => bot.deathCount++);
+            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
         }
     } else if (action === 'stop') {
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
@@ -159,25 +202,27 @@ app.post('/control', checkAuth, (req, res) => {
     res.sendStatus(200);
 });
 
+app.post('/auth-register', (req, res) => {
+    const { username, password, confirm } = req.body;
+    if (password !== confirm || users.find(u => u.username === username)) return res.send("Error in Register");
+    users.push({ username, password });
+    res.redirect('/login');
+});
+
+app.post('/auth-login', (req, res) => {
+    const { username, password } = req.body;
+    const user = users.find(u => u.username === username && u.password === password);
+    if (user) { req.session.user = username; res.redirect('/'); } else res.send("Error Login");
+});
+
 app.post('/add', checkAuth, (req, res) => {
     const { type, host, port, botName } = req.body;
     activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
     res.redirect('/');
 });
 
-app.post('/auth-login', (req, res) => {
-    const { username, password } = req.body;
-    const user = users.find(u => u.username === username && u.password === password);
-    if (user) { req.session.user = username; res.redirect('/'); } else res.send("Error");
-});
-
-app.post('/auth-register', (req, res) => {
-    const { username, password, confirm } = req.body;
-    if (password === confirm && !users.find(u=>u.username===username)) { users.push({username, password}); res.redirect('/login'); } else res.send("Error");
-});
-
-app.get('/login', (req, res) => res.send(`...كود اللوجن...`)); 
-app.get('/register', (req, res) => res.send(`...كود الريجستر...`));
+app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`🚀 Kinga Live Dash on port ${PORT}`));
