@@ -1,9 +1,14 @@
 {
   "name": "bedrock-afk-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "Multi-bot AFK manager with secure login",
   "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
-    "bedrock-protocol": "latest",
-    "express": "latest"
+    "bedrock-protocol": "^3.x.x",
+    "express": "^4.x.x",
+    "express-session": "^1.18.0"
   }
 }
