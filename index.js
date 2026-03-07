@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: 'kinga-final-ultra-fix',
+    secret: 'kinga-final-safe-key',
     resave: false,
     saveUninitialized: true,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
@@ -21,7 +21,7 @@ function checkAuth(req, res, next) {
     next();
 }
 
-// دالة التصميم الأساسي
+// واجهة التصميم الموحدة
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
 <head>
@@ -48,7 +48,7 @@ const layout = (title, content, lang = 'ar') => `
 </head>
 <body>${content}</body></html>`;
 
-// --- صفحات تسجيل الدخول (تم الإصلاح هنا) ---
+// --- مسارات الدخول والتسجيل ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
@@ -59,10 +59,7 @@ app.get('/login', (req, res) => {
             <input name="password" type="password" placeholder="${isAr ? 'كلمة المرور' : 'Password'}" required>
             <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'دخول' : 'Login'}</button>
         </form>
-        <p style="margin-top:20px; font-size:0.9em;">
-            ${isAr ? 'ليس لديك حساب؟' : "Don't have an account?"} 
-            <a href="/register?lang=${isAr?'ar':'en'}" style="color:#1a73e8; text-decoration:none; font-weight:bold;">${isAr ? 'إنشاء حساب' : 'Register'}</a>
-        </p>
+        <p style="margin-top:20px; font-size:0.9em;"><a href="/register?lang=${isAr?'ar':'en'}" style="text-decoration:none;">${isAr ? 'إنشاء حساب جديد' : 'Register'}</a></p>
     </div>`, isAr ? 'ar' : 'en'));
 });
 
@@ -74,16 +71,14 @@ app.get('/register', (req, res) => {
         <form action="/auth-register" method="POST">
             <input name="username" placeholder="${isAr ? 'اسم المستخدم' : 'Username'}" required>
             <input name="password" type="password" placeholder="${isAr ? 'كلمة المرور' : 'Password'}" required>
-            <input name="confirm" type="password" placeholder="${isAr ? 'تأكيد كلمة المرور' : 'Confirm Password'}" required>
-            <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'إنشاء الحساب' : 'Register'}</button>
+            <input name="confirm" type="password" placeholder="${isAr ? 'تأكيد كلمة المرور' : 'Confirm'}" required>
+            <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'إنشاء' : 'Register'}</button>
         </form>
-        <p style="margin-top:20px; font-size:0.9em;">
-            <a href="/login?lang=${isAr?'ar':'en'}" style="color:#1a73e8; text-decoration:none; font-weight:bold;">${isAr ? 'لديك حساب بالفعل؟ دخول' : 'Already have an account? Login'}</a>
-        </p>
+        <p style="margin-top:20px; font-size:0.9em;"><a href="/login?lang=${isAr?'ar':'en'}" style="text-decoration:none;">${isAr ? 'لديك حساب؟ دخول' : 'Login'}</a></p>
     </div>`, isAr ? 'ar' : 'en'));
 });
 
-// --- لوحة التحكم المباشرة ---
+// --- لوحة التحكم ---
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
     const isAr = lang === 'ar';
@@ -100,7 +95,6 @@ app.get('/', checkAuth, (req, res) => {
                 <h3 style="margin:0;">🤖 ${name}</h3>
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
-            
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                     <strong>📍 ${isAr?'الإحداثيات':'Coordinates'}:</strong>
@@ -111,11 +105,10 @@ app.get('/', checkAuth, (req, res) => {
                     </div>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                    <span>⏱️ ${isAr?'مدة الاتصال':'Uptime'}: <b id="timer-${name}" data-start="${b.startTime || ''}" style="color:#1a73e8;">0s</b></span>
+                    <span>⏱️ ${isAr?'مدة الاتصال':'Uptime'}: <b id="timer-${name}" data-start="${b.startTime || ''}" style="color:#1a73e8;">---</b></span>
                     <span>💀 ${isAr?'الوفيات':'Deaths'}: <b>${b.deathCount}</b></span>
                 </div>
             </div>
-
             <div style="margin-top:15px; display:flex; gap:10px;">
                 <button onclick="ctl('${name}','start')" class="btn btn-start" style="flex:1;" ${b.connected || b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
                 <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!b.connected ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
@@ -124,7 +117,7 @@ app.get('/', checkAuth, (req, res) => {
         </div>`;
     }).join('');
 
-    res.send(layout('Kinga Live Manager', `
+    res.send(layout('Kinga Dashboard', `
     <div class="dashboard-card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h2>🚀 Kinga Live Manager</h2>
@@ -140,30 +133,34 @@ app.get('/', checkAuth, (req, res) => {
             <input name="port" placeholder="Port" style="grid-column:span 2;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
-        <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات نشطة</p>'}</div>
+        <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات</p>'}</div>
     </div>
     <script>
         function ctl(n,a){ fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>setTimeout(()=>location.reload(), 1200));}
         
-        // تحديث العداد الحي (Live Timer) كل ثانية في المتصفح
+        // تحديث العداد المباشر مع التحقق من الحالة لمنع الاستمرار عند الإيقاف
         setInterval(() => {
             document.querySelectorAll('[id^="timer-"]').forEach(el => {
                 const start = el.getAttribute('data-start');
-                if (start) {
+                const card = el.closest('.bot-card');
+                const isOnline = card && (card.innerText.includes('Online') || card.innerText.includes('متصل'));
+
+                if (start && isOnline) {
                     const diff = Math.floor((Date.now() - parseInt(start)) / 1000);
                     const m = Math.floor(diff / 60);
                     const s = diff % 60;
                     el.innerText = m > 0 ? m + "m " + s + "s" : s + "s";
+                } else {
+                    el.innerText = "---";
                 }
             });
         }, 1000);
 
-        // تحديث البيانات (الإحداثيات والحالة) كل 10 ثوانٍ تلقائياً
         setInterval(() => {
             if (document.body.innerText.includes('Online') || document.body.innerText.includes('متصل') || document.body.innerText.includes('...')) {
                 location.reload();
             }
-        }, 10000);
+        }, 15000);
     </script>`, isAr ? 'ar' : 'en'));
 });
 
@@ -172,7 +169,7 @@ app.post('/control', checkAuth, (req, res) => {
     const { name, action } = req.body;
     const bot = activeBots[name];
     if (action === 'start' && !bot.connected) {
-        bot.connecting = true; // حالة جاري الانضمام
+        bot.connecting = true;
         if (bot.type === 'bedrock') {
             bot.client = bedrock.createClient({ host: bot.host, port: parseInt(bot.port), username: name, offline: true });
             bot.client.on('spawn', () => { 
@@ -180,7 +177,6 @@ app.post('/control', checkAuth, (req, res) => {
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
             });
             bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
-            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
         } else {
             const [h, p] = bot.host.split(':');
             bot.client = mineflayer.createBot({ host: h, port: p || 25565, username: name });
@@ -188,31 +184,17 @@ app.post('/control', checkAuth, (req, res) => {
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 bot.pos = bot.client.entity.position;
             });
-            bot.client.on('end', () => { bot.connected = false; bot.connecting = false; });
             bot.client.on('death', () => bot.deathCount++);
-            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('end', () => { bot.connected = false; bot.connecting = false; bot.startTime = null; });
         }
     } else if (action === 'stop') {
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        bot.connected = false; bot.connecting = false; bot.startTime = null;
+        bot.connected = false; bot.connecting = false; bot.startTime = null; // تصفير الوقت عند الإيقاف
     } else if (action === 'delete') {
         if (bot.client) bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit();
         delete activeBots[name];
     }
     res.sendStatus(200);
-});
-
-app.post('/auth-register', (req, res) => {
-    const { username, password, confirm } = req.body;
-    if (password !== confirm || users.find(u => u.username === username)) return res.send("Error in Register");
-    users.push({ username, password });
-    res.redirect('/login');
-});
-
-app.post('/auth-login', (req, res) => {
-    const { username, password } = req.body;
-    const user = users.find(u => u.username === username && u.password === password);
-    if (user) { req.session.user = username; res.redirect('/'); } else res.send("Error Login");
 });
 
 app.post('/add', checkAuth, (req, res) => {
@@ -221,8 +203,20 @@ app.post('/add', checkAuth, (req, res) => {
     res.redirect('/');
 });
 
+app.post('/auth-register', (req, res) => {
+    const { username, password, confirm } = req.body;
+    if (password !== confirm || users.find(u => u.username === username)) return res.send("Error");
+    users.push({ username, password });
+    res.redirect('/login');
+});
+
+app.post('/auth-login', (req, res) => {
+    const { username, password } = req.body;
+    const user = users.find(u => u.username === username && u.password === password);
+    if (user) { req.session.user = username; res.redirect('/'); } else res.send("Error");
+});
+
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Kinga Live Dash on port ${PORT}`));
+app.listen(process.env.PORT || 10000);
