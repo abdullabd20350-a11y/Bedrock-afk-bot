@@ -1,11 +1,8 @@
 {
-  "name": "kinga-pro-manager-v5",
-  "version": "5.0.0",
-  "description": "Advanced Minecraft Bot Manager with Live Stats",
+  "name": "kinga-pro-live-v8",
+  "version": "8.0.0",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "scripts": { "start": "node index.js" },
   "dependencies": {
     "bedrock-protocol": "^3.x.x",
     "mineflayer": "^4.20.0",
