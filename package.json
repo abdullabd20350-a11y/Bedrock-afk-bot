@@ -1,7 +1,7 @@
 {
-  "name": "bedrock-afk-bot",
-  "version": "2.5.0",
-  "description": "Multi-version Minecraft AFK Manager (Java & Bedrock) with User Accounts",
+  "name": "kinga-ultimate-manager",
+  "version": "3.0.0",
+  "description": "Advanced MC Bot Manager with Real-time Stats",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -11,8 +11,5 @@
     "mineflayer": "^4.20.0",
     "express": "^4.x.x",
     "express-session": "^1.18.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
