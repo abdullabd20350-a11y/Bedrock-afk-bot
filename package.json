@@ -1,14 +1,18 @@
 {
   "name": "bedrock-afk-bot",
-  "version": "2.0.0",
-  "description": "Multi-bot AFK manager with secure login",
+  "version": "2.5.0",
+  "description": "Multi-version Minecraft AFK Manager (Java & Bedrock) with User Accounts",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "bedrock-protocol": "^3.x.x",
+    "mineflayer": "^4.20.0",
     "express": "^4.x.x",
     "express-session": "^1.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
