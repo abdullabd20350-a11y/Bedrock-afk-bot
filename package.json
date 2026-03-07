@@ -1,13 +1,13 @@
 {
-  "name": "kinga-pro-manager",
+  "name": "kinga-afk-bot",
   "version": "4.0.0",
+  "description": "Multi-version MC Bot Manager Pro",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
   "dependencies": {
     "bedrock-protocol": "^3.x.x",
     "mineflayer": "^4.20.0",
     "express": "^4.x.x",
     "express-session": "^1.18.0"
-  },
-  "scripts": {
-    "start": "node index.js"
   }
 }
