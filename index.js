@@ -7,255 +7,183 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: 'kinga-ultra-secure-key',
+    secret: 'kinga-super-secret-key',
     resave: false,
     saveUninitialized: true,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
-// قاعدة بيانات وهمية (تصفر عند ريستارت السيرفر)
 let users = []; 
 let activeBots = {}; 
 
-// دالة حماية المسارات
 function checkAuth(req, res, next) {
     if (!req.session.user) return res.redirect('/login');
     next();
 }
 
-// --- القواميس اللغوية (عربي / إنجليزي) ---
-const translations = {
-    ar: {
-        title: "كينجا بوت مانجر Pro",
-        login: "تسجيل الدخول",
-        register: "إنشاء حساب جديد",
-        user: "اسم المستخدم",
-        pass: "كلمة المرور",
-        confirmPass: "تأكيد كلمة المرور",
-        enter: "دخول",
-        create: "إنشاء الحساب",
-        noAccount: "ليس لديك حساب؟ سجل الآن",
-        hasAccount: "لديك حساب بالفعل؟ سجل دخولك",
-        welcome: "مرحباً بك،",
-        logout: "تسجيل الخروج",
-        addBot: "إضافة بوت جديد",
-        botName: "اسم البوت داخل اللعبة",
-        serverIp: "عنوان السيرفر (IP)",
-        port: "المنفذ (Port)",
-        save: "حفظ وإضافة",
-        activeBots: "البوتات النشطة",
-        stats: "الإحصائيات",
-        coords: "الإحداثيات",
-        deaths: "الوفيات",
-        uptime: "وقت التشغيل",
-        start: "تشغيل",
-        stop: "إيقاف",
-        delete: "حذف",
-        refresh: "تحديث الإحصائيات",
-        errorUserTaken: "⚠️ اسم المستخدم مأخوذ بالفعل!",
-        errorPassMatch: "⚠️ كلمات المرور غير متطابقة!",
-        errorWrongPass: "⚠️ اسم المستخدم أو كلمة المرور غير صحيحة!"
-    },
-    en: {
-        title: "Kinga Bot Manager Pro",
-        login: "Login",
-        register: "Create New Account",
-        user: "Username",
-        pass: "Password",
-        confirmPass: "Confirm Password",
-        enter: "Login",
-        create: "Register",
-        noAccount: "Don't have an account? Register",
-        hasAccount: "Already have an account? Login",
-        welcome: "Welcome,",
-        logout: "Logout",
-        addBot: "Add New Bot",
-        botName: "In-game Bot Name",
-        serverIp: "Server IP",
-        port: "Port",
-        save: "Save & Add",
-        activeBots: "Active Bots",
-        stats: "Statistics",
-        coords: "Coordinates",
-        deaths: "Deaths",
-        uptime: "Uptime",
-        start: "Start",
-        stop: "Stop",
-        delete: "Delete",
-        refresh: "Refresh Stats",
-        errorUserTaken: "⚠️ Username is already taken!",
-        errorPassMatch: "⚠️ Passwords do not match!",
-        errorWrongPass: "⚠️ Incorrect username or password!"
-    }
-};
+// دالة حساب مدة الاتصال بتنسيق مقروء
+function getUptime(startTime) {
+    if (!startTime) return "0s";
+    const diff = Math.floor((Date.now() - startTime) / 1000);
+    const mins = Math.floor(diff / 60);
+    const secs = diff % 60;
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
 
-// --- الصفحات (HTML) ---
-
-const baseHead = (lang) => `
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        :root { --primary: #1a73e8; --danger: #dc3545; --success: #28a745; --bg: #f4f7f6; }
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); margin: 0; direction: ${lang === 'ar' ? 'rtl' : 'ltr'}; text-align: ${lang === 'ar' ? 'right' : 'left'}; }
-        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 400px; margin: 50px auto; }
-        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
-        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-link { background: none; color: var(--primary); text-decoration: underline; }
-        .lang-switch { position: fixed; top: 20px; right: 20px; background: white; padding: 10px; border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); text-decoration: none; font-size: 0.8em; z-index: 1000; }
-    </style>
-`;
-
-app.get('/login', (req, res) => {
-    const lang = req.query.lang || 'ar';
-    const t = translations[lang];
-    res.send(`
-        <html><head>${baseHead(lang)}</head><body>
-            <a href="?lang=${lang === 'ar' ? 'en' : 'ar'}" class="lang-switch">${lang === 'ar' ? 'English' : 'العربية'}</a>
-            <div class="card">
-                <h2>${t.login}</h2>
-                <form action="/auth-login" method="POST">
-                    <input type="text" name="username" placeholder="${t.user}" required>
-                    <input type="password" name="password" placeholder="${t.pass}" required>
-                    <button class="btn btn-primary">${t.enter}</button>
-                </form>
-                <a href="/register?lang=${lang}" class="btn-link" style="display:block; text-align:center;">${t.noAccount}</a>
-            </div>
-        </body></html>
-    `);
-});
-
-app.get('/register', (req, res) => {
-    const lang = req.query.lang || 'ar';
-    const t = translations[lang];
-    res.send(`
-        <html><head>${baseHead(lang)}</head><body>
-            <div class="card">
-                <h2>${t.register}</h2>
-                <form action="/auth-register" method="POST">
-                    <input type="text" name="username" placeholder="${t.user}" required>
-                    <input type="password" name="password" placeholder="${t.pass}" required>
-                    <input type="password" name="confirm" placeholder="${t.confirmPass}" required>
-                    <button class="btn btn-primary">${t.create}</button>
-                </form>
-                <a href="/login?lang=${lang}" class="btn-link" style="display:block; text-align:center;">${t.hasAccount}</a>
-            </div>
-        </body></html>
-    `);
-});
-
-// --- لوحة التحكم مدمجة مع اللغات ---
+// --- الواجهة الرسومية المحدثة ---
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
-    const t = translations[lang];
+    const isAr = lang === 'ar';
     let myBots = Object.keys(activeBots).filter(n => activeBots[n].owner === req.session.user);
     
     let botCards = myBots.map(name => {
         const b = activeBots[name];
+        const timeOnline = b.connected ? getUptime(b.startTime) : (isAr ? "غير متصل" : "Offline");
+        
         return `
-            <div style="background:white; padding:20px; border-radius:12px; margin-bottom:20px; border-left: 5px solid ${b.connected ? 'green' : 'red'};">
-                <div style="display:flex; justify-content:space-between;">
-                    <h3>🤖 ${name} <small>(${b.type})</small></h3>
-                    <span style="color:${b.connected ? 'green' : 'red'}">${b.connected ? 'ON' : 'OFF'}</span>
+            <div style="background:white; padding:20px; border-radius:15px; margin-bottom:20px; border-right: 5px solid ${b.connected ? '#28a745' : '#dc3545'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0;">🤖 ${name} <small style="color:#666;">(${b.type})</small></h3>
+                    <span style="background:${b.connected ? '#d4edda' : '#f8d7da'}; color:${b.connected ? '#155724' : '#721c24'}; padding:5px 10px; border-radius:20px; font-size:0.8em; font-weight:bold;">
+                        ${b.connected ? (isAr ? 'متصل' : 'Connected') : (isAr ? 'متوقف' : 'Stopped')}
+                    </span>
                 </div>
-                <div style="background:#f9f9f9; padding:10px; border-radius:8px; font-size:0.9em; display:grid; grid-template-columns:1fr 1fr;">
-                    <p>📍 ${t.coords}: ${b.pos.x.toFixed(1)}, ${b.pos.y.toFixed(1)}</p>
-                    <p>💀 ${t.deaths}: ${b.deathCount}</p>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:15px; font-size:0.9em; color:#555; background:#fcfcfc; padding:10px; border-radius:10px;">
+                    <p>📍 ${isAr ? 'الإحداثيات' : 'Coords'}: ${b.pos.x.toFixed(1)}, ${b.pos.y.toFixed(1)}</p>
+                    <p>💀 ${isAr ? 'الوفيات' : 'Deaths'}: ${b.deathCount}</p>
+                    <p style="grid-column: span 2;">⏱️ ${isAr ? 'مدة الاتصال الحالية' : 'Online for'}: <b style="color:#1a73e8;">${timeOnline}</b></p>
                 </div>
-                <div style="margin-top:10px; display:flex; gap:5px;">
-                    <button onclick="ctl('${name}', 'start')" class="btn btn-primary" style="padding:5px; flex:1;" ${b.connected ? 'disabled' : ''}>${t.start}</button>
-                    <button onclick="ctl('${name}', 'stop')" class="btn btn-danger" style="padding:5px; flex:1;" ${!b.connected ? 'disabled' : ''}>${t.stop}</button>
-                    <button onclick="ctl('${name}', 'delete')" style="background:#555; color:white; border:none; border-radius:8px; flex:1;">${t.delete}</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button onclick="controlBot('${name}', 'start')" style="flex:1; background:#28a745; color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;" ${b.connected ? 'disabled style="opacity:0.5;"' : ''}>${isAr ? 'تشغيل' : 'Start'}</button>
+                    <button onclick="controlBot('${name}', 'stop')" style="flex:1; background:#ffc107; color:black; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;" ${!b.connected ? 'disabled style="opacity:0.5;"' : ''}>${isAr ? 'إيقاف' : 'Stop'}</button>
+                    <button onclick="controlBot('${name}', 'delete')" style="flex:1; background:#dc3545; color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;">${isAr ? 'حذف' : 'Delete'}</button>
                 </div>
             </div>`;
     }).join('');
 
     res.send(`
-        <html><head>${baseHead(lang)}<style>.container{max-width:800px; margin:auto; padding:20px;}</style></head><body>
+        <html lang="${lang}" dir="${isAr ? 'rtl' : 'ltr'}">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
+                .container { max-width: 800px; margin: auto; }
+                .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+                input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; }
+            </style>
+        </head>
+        <body>
             <div class="container">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <h1>${t.title}</h1>
-                    <div>
-                        <a href="/set-lang?l=${lang==='ar'?'en':'ar'}" style="margin-right:15px;">${lang==='ar'?'English':'عربي'}</a>
-                        <a href="/logout" style="color:red;">${t.logout}</a>
-                    </div>
+                    <h1>${isAr ? 'لوحة تحكم كينجا' : 'Kinga Dashboard'}</h1>
+                    <a href="/logout" style="color:red; font-weight:bold; text-decoration:none;">${isAr ? 'خروج' : 'Logout'}</a>
                 </div>
-                <div class="card" style="max-width:none; margin:20px 0;">
-                    <h3>${t.addBot}</h3>
-                    <form action="/add" method="POST" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div class="card" style="margin:20px 0;">
+                    <h3>${isAr ? 'إضافة بوت جديد' : 'Add New Bot'}</h3>
+                    <form action="/add" method="POST">
                         <select name="type" id="tp" onchange="u()">
                             <option value="bedrock">Bedrock</option>
                             <option value="java">Java</option>
                         </select>
-                        <input name="botName" placeholder="${t.botName}" required>
-                        <input name="host" id="host" placeholder="${t.serverIp}" required>
-                        <input name="port" id="port" placeholder="${t.port}">
-                        <button class="btn btn-primary" style="grid-column: span 2;">${t.save}</button>
+                        <input name="botName" placeholder="${isAr ? 'اسم البوت' : 'Bot Name'}" required>
+                        <input name="host" id="host" placeholder="${isAr ? 'الآيبي' : 'IP'}" required>
+                        <input name="port" id="port" placeholder="${isAr ? 'البورت' : 'Port'}">
+                        <button type="submit" style="width:100%; background:#1a73e8; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">${isAr ? 'حفظ' : 'Save'}</button>
                     </form>
                 </div>
-                <div>${botCards || '<p>No bots saved.</p>'}</div>
+                <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
             </div>
             <script>
-                function u(){const v=document.getElementById('tp').value; const p=document.getElementById('port'); p.style.display=v==='java'?'none':'block';}
-                function ctl(n,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>location.reload());}
+                function u(){ const v=document.getElementById('tp').value; document.getElementById('port').style.display=v==='java'?'none':'block'; }
+                function controlBot(n, a){ 
+                    fetch('/control', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({name: n, action: a})
+                    }).then(() => {
+                        // تحديث تلقائي بعد ثانية لضمان استلام حالة الاتصال من السيرفر
+                        setTimeout(() => location.reload(), 1000);
+                    });
+                }
                 u();
+                // تحديث الصفحة كل 30 ثانية لتحديث عداد الوقت تلقائياً
+                setInterval(() => location.reload(), 30000);
             </script>
         </body></html>
     `);
 });
 
-// --- المنطق البرمجي (Backend) ---
+// --- المنطق الخلفي (Backend) ---
+
+app.post('/control', checkAuth, (req, res) => {
+    const { name, action } = req.body;
+    const bot = activeBots[name];
+    if (!bot) return res.sendStatus(404);
+
+    if (action === 'start') {
+        if (bot.connected) return res.sendStatus(200);
+
+        if (bot.type === 'bedrock') {
+            bot.client = bedrock.createClient({ host: bot.host, port: parseInt(bot.port), username: name, offline: true });
+            bot.client.on('spawn', () => { 
+                bot.connected = true; 
+                bot.startTime = Date.now(); 
+            });
+            bot.client.on('error', (err) => { bot.connected = false; console.error(err); });
+            bot.client.on('close', () => { bot.connected = false; });
+        } else {
+            const [h, p] = bot.host.split(':');
+            bot.client = mineflayer.createBot({ host: h, port: p || 25565, username: name });
+            bot.client.on('spawn', () => { 
+                bot.connected = true; 
+                bot.startTime = Date.now();
+                bot.pos = bot.client.entity.position;
+            });
+            bot.client.on('death', () => bot.deathCount++);
+            bot.client.on('end', () => { bot.connected = false; });
+            bot.client.on('error', (err) => { bot.connected = false; });
+        }
+    } else if (action === 'stop') {
+        if (bot.client) {
+            bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit();
+        }
+        bot.connected = false;
+        bot.startTime = null;
+        bot.client = null;
+    } else if (action === 'delete') {
+        if (bot.client) bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit();
+        delete activeBots[name];
+    }
+    res.sendStatus(200);
+});
+
+// (بقية المسارات /login, /register, /auth تبقى كما هي)
+app.post('/add', checkAuth, (req, res) => {
+    const { type, host, port, botName } = req.body;
+    activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, client: null, pos: {x:0, y:0, z:0}, deathCount: 0, startTime: null };
+    res.redirect('/');
+});
 
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
-    const lang = req.headers.referer.includes('en') ? 'en' : 'ar';
-    
-    if (users.find(u => u.username === username)) return res.send(`<h3>${translations[lang].errorUserTaken}</h3><a href="/register?lang=${lang}">Back</a>`);
-    if (password !== confirm) return res.send(`<h3>${translations[lang].errorPassMatch}</h3><a href="/register?lang=${lang}">Back</a>`);
-    
+    if (users.find(u => u.username === username)) return res.send("User taken");
+    if (password !== confirm) return res.send("Pass mismatch");
     users.push({ username, password });
-    res.redirect(`/login?lang=${lang}`);
+    res.redirect('/login');
 });
 
 app.post('/auth-login', (req, res) => {
     const { username, password } = req.body;
     const user = users.find(u => u.username === username && u.password === password);
-    if (!user) return res.send(`<h3>Invalid Login</h3><a href="/login">Back</a>`);
-    
+    if (!user) return res.send("Invalid Login");
     req.session.user = username;
-    req.session.lang = req.headers.referer.includes('en') ? 'en' : 'ar';
     res.redirect('/');
 });
 
-app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
+app.get('/login', (req, res) => { res.send(`<html><body style="font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; background:#f0f2f5;"><div style="background:white; padding:30px; border-radius:15px; box-shadow:0 4px 10px rgba(0,0,0,0.1);"><h2 style="text-align:center;">Login</h2><form action="/auth-login" method="POST"><input name="username" placeholder="Username" required style="width:100%; padding:10px; margin:10px 0;"><input name="password" type="password" placeholder="Password" required style="width:100%; padding:10px; margin:10px 0;"><button style="width:100%; background:#1a73e8; color:white; border:none; padding:12px; border-radius:8px; cursor:pointer;">Enter</button></form><p style="text-align:center;"><a href="/register">Register</a></p></div></body></html>`); });
 
-// تشغيل البوتات والتحكم بها (نفس منطق الكود السابق الفعال)
-app.post('/add', checkAuth, (req, res) => {
-    const { type, host, port, botName } = req.body;
-    activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, client: null, pos: {x:0, y:0, z:0}, deathCount: 0 };
-    res.redirect('/');
-});
-
-app.post('/control', checkAuth, (req, res) => {
-    const { name, action } = req.body;
-    const bot = activeBots[name];
-    if (action === 'start') {
-        if (bot.type === 'bedrock') {
-            bot.client = bedrock.createClient({ host: bot.host, port: parseInt(bot.port), username: name, offline: true });
-            bot.client.on('spawn', () => { bot.connected = true; });
-        } else {
-            const [h, p] = bot.host.split(':');
-            bot.client = mineflayer.createBot({ host: h, port: p||25565, username: name });
-            bot.client.on('spawn', () => { bot.connected = true; bot.pos = bot.client.entity.position; });
-            bot.client.on('death', () => bot.deathCount++);
-        }
-    } else if (action === 'stop' || action === 'delete') {
-        if (bot.client) bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit();
-        if (action === 'delete') delete activeBots[name]; else bot.connected = false;
-    }
-    res.sendStatus(200);
-});
+app.get('/register', (req, res) => { res.send(`<html><body style="font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; background:#f0f2f5;"><div style="background:white; padding:30px; border-radius:15px; box-shadow:0 4px 10px rgba(0,0,0,0.1);"><h2 style="text-align:center;">Register</h2><form action="/auth-register" method="POST"><input name="username" placeholder="Username" required style="width:100%; padding:10px; margin:10px 0;"><input name="password" type="password" placeholder="Password" required style="width:100%; padding:10px; margin:10px 0;"><input name="confirm" type="password" placeholder="Confirm Password" required style="width:100%; padding:10px; margin:10px 0;"><button style="width:100%; background:#1a73e8; color:white; border:none; padding:12px; border-radius:8px; cursor:pointer;">Create</button></form><p style="text-align:center;"><a href="/login">Login</a></p></div></body></html>`); });
 
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
