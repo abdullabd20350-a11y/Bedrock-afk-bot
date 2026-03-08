@@ -64,6 +64,7 @@ function connectBot(id) {
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
             if (pkt.player_position) b.pos = pkt.player_position;
+            // طلب تحميل الخريطة لكي لا يقع في الفراغ
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
@@ -73,40 +74,12 @@ function connectBot(id) {
             b.retryCount = 0; 
             saveDB();
 
+            // إخبار السيرفر بإنهاء شاشة التحميل
             client.queue('set_local_player_as_initialized', {
                 runtime_entity_id: b.runtimeId
             });
 
-            let tickCount = 0n;
-
-            if (b.physicsInterval) clearInterval(b.physicsInterval);
-            b.physicsInterval = setInterval(() => {
-                if (!b.connected) return clearInterval(b.physicsInterval);
-                try {
-                    tickCount++;
-                    client.queue('player_auth_input', {
-                        pitch: 0,
-                        yaw: 0,
-                        position: b.pos,
-                        move_vector: { x: 0, z: 0 },
-                        head_yaw: 0,
-                        input_data: 0n,
-                        play_mode: 0,
-                        interaction_model: 0,
-                        gaze_direction: { x: 0, y: 0, z: 1 },
-                        tick: tickCount,
-                        delta: { x: 0, y: 0, z: 0 }
-                    });
-                } catch (e) {}
-            }, 50);
-
-            client.on('move_player', (pkt) => {
-                if (pkt.runtime_entity_id === b.runtimeId) {
-                    b.pos = pkt.position;
-                    saveDB(); // حفظ الإحداثيات عند تغيرها لتظهر بعد التحديث
-                }
-            });
-
+            // Anti-AFK آمن (تأرجح اليد كل 30 ثانية)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
@@ -118,6 +91,7 @@ function connectBot(id) {
                 } catch (e) {}
             }, 30000);
 
+            // تجديد الدخول كل 20 دقيقة لتفادي كشف السيرفر
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
                 b.isRelogging = true; 
@@ -125,8 +99,28 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        client.on('respawn', () => {
-            client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
+        // 🔥 الحل الجذري والنهائي لحالة الشبح (Y: 32769) 🔥
+        client.on('respawn', (pkt) => {
+            // عندما يرسل السيرفر State 1 (أنا جاهز لتنزيلك للأرض)
+            if (pkt.state === 1) {
+                b.pos = pkt.position; // تحديث الإحداثيات لموقع الأرض الحقيقي
+                saveDB();
+                
+                // البوت يرد: State 2 (أنا جاهز، قم بتأكيد وجودي المادي)
+                client.queue('respawn', {
+                    runtime_entity_id: b.runtimeId,
+                    state: 2, 
+                    position: pkt.position
+                });
+            }
+        });
+
+        // التقاط الإحداثيات الحقيقية عندما يرسل السيرفر البوت للأرض
+        client.on('move_player', (pkt) => {
+            if (pkt.runtime_entity_id === b.runtimeId) {
+                b.pos = pkt.position;
+                saveDB();
+            }
         });
 
         client.on('error', (err) => { handleDisconnect(id); });
@@ -137,11 +131,11 @@ function connectBot(id) {
     }
 }
 
+// دالة معالجة الفصل 
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
 
-    if (b.physicsInterval) clearInterval(b.physicsInterval);
     if (b.moveInterval) clearInterval(b.moveInterval);
     if (b.reloginTimer) clearTimeout(b.reloginTimer);
     if (activeClients[id]) delete activeClients[id];
@@ -202,8 +196,6 @@ const ui = (content) => `
             body: JSON.stringify({id, action})
         }).then(() => setTimeout(() => location.reload(), 800));
     }
-    // تم إلغاء التحديث التلقائي لمنع مسح الكتابة. 
-    // أضفنا زر تحديث يدوي لتحديث الإحداثيات عند الحاجة.
 </script></body></html>`;
 
 app.get('/', (req, res) => {
