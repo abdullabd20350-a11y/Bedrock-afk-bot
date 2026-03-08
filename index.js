@@ -7,11 +7,11 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// إعداد الجلسة مع تعطيل تحذير MemoryStore
+// حل مشكلة MemoryStore وتثبيت الجلسات
 app.use(session({
-    secret: 'kinga-ultra-safe-2026',
-    resave: true,
-    saveUninitialized: true,
+    secret: 'kinga-stable-secret-2026',
+    resave: false,
+    saveUninitialized: false, // تم تعديله لمنع تسريب الذاكرة
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
@@ -33,14 +33,14 @@ const layout = (title, content, lang = 'ar') => `
     <style>
         body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
         .dashboard-card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); max-width: 900px; margin: auto; }
-        .bot-card { background: #fff; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid #eee; transition: 0.3s; }
+        .bot-card { background: #fff; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid #eee; }
         .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
         .status-connecting { background: #fff3cd; color: #856404; animation: blink 1s infinite; }
         .status-online { background: #d4edda; color: #155724; }
         .status-offline { background: #f8d7da; color: #721c24; }
         @keyframes blink { 50% { opacity: 0.6; } }
         .coords-box { display: flex; gap: 15px; background: #f9f9f9; padding: 10px; border-radius: 10px; font-family: monospace; font-size: 0.9em; }
-        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
         .btn-delete { background: #dc3545; color: white; }
@@ -50,7 +50,7 @@ const layout = (title, content, lang = 'ar') => `
 </head>
 <body>${content}</body></html>`;
 
-// --- صفحات تسجيل الدخول والتسجيل ---
+// --- صفحات الدخول والتسجيل ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
@@ -162,11 +162,17 @@ app.get('/', checkAuth, (req, res) => {
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// --- المنطق الخلفي المصلح ---
+// --- المنطق الخلفي المصلح (Auth) ---
+
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
-    if (password !== confirm || users.find(u => u.username === username)) {
-        return res.send("<script>alert('Error in Register'); window.location='/register';</script>");
+    // التحقق من تطابق الباسورد
+    if (password !== confirm) {
+        return res.send("<script>alert('❌ كلمات المرور غير متطابقة!'); window.location='/register';</script>");
+    }
+    // التحقق من تكرار اسم المستخدم (حل المشكلة الثانية)
+    if (users.find(u => u.username === username)) {
+        return res.send("<script>alert('⚠️ هذا المستخدم موجود بالفعل، اختر اسماً آخر!'); window.location='/register';</script>");
     }
     users.push({ username, password });
     res.redirect('/login');
@@ -175,11 +181,12 @@ app.post('/auth-register', (req, res) => {
 app.post('/auth-login', (req, res) => {
     const { username, password } = req.body;
     const user = users.find(u => u.username === username && u.password === password);
+    // التحقق من صحة البيانات (حل المشكلة الأولى)
     if (user) {
         req.session.user = username;
         return res.redirect('/');
     }
-    res.send("<script>alert('Invalid Login'); window.location='/login';</script>");
+    res.send("<script>alert('❌ اسم المستخدم أو كلمة المرور غير صحيحة!'); window.location='/login';</script>");
 });
 
 app.post('/control', checkAuth, (req, res) => {
