@@ -7,11 +7,11 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// حل مشكلة MemoryStore وتثبيت الجلسات
+// إعداد الجلسة وحل مشكلة تحذير MemoryStore
 app.use(session({
-    secret: 'kinga-stable-secret-2026',
+    secret: 'kinga-stable-safe-2026',
     resave: false,
-    saveUninitialized: false, // تم تعديله لمنع تسريب الذاكرة
+    saveUninitialized: false,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
@@ -23,7 +23,7 @@ function checkAuth(req, res, next) {
     next();
 }
 
-// واجهة التصميم الموحدة
+// واجهة التصميم الموحدة مع دعم كامل لجميع الحالات
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
 <head>
@@ -40,7 +40,7 @@ const layout = (title, content, lang = 'ar') => `
         .status-offline { background: #f8d7da; color: #721c24; }
         @keyframes blink { 50% { opacity: 0.6; } }
         .coords-box { display: flex; gap: 15px; background: #f9f9f9; padding: 10px; border-radius: 10px; font-family: monospace; font-size: 0.9em; }
-        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
         .btn-delete { background: #dc3545; color: white; }
@@ -50,7 +50,7 @@ const layout = (title, content, lang = 'ar') => `
 </head>
 <body>${content}</body></html>`;
 
-// --- صفحات الدخول والتسجيل ---
+// --- صفحات الدخول والتسجيل مع معالجة البيانات الخاطئة ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
@@ -94,7 +94,7 @@ app.get('/', checkAuth, (req, res) => {
         return `
         <div class="bot-card" style="border-${isAr?'right':'left'}: 6px solid ${b.connected?'#28a745':(b.connecting?'#ffc107':'#dc3545')};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h3 style="margin:0;">🤖 ${name}</h3>
+                <h3 style="margin:0;">🤖 ${name} <small>(${b.type})</small></h3>
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
@@ -129,15 +129,16 @@ app.get('/', checkAuth, (req, res) => {
             </div>
         </div>
         <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0;">
-            <select name="type"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
+            <select name="type" id="tp" onchange="u()"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
             <input name="botName" placeholder="${isAr?'اسم البوت':'Bot Name'}" required>
             <input name="host" placeholder="Server IP" required style="grid-column:span 2;">
-            <input name="port" placeholder="Port" style="grid-column:span 2;">
+            <input name="port" id="port" placeholder="Port" style="grid-column:span 2;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
         <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
     </div>
     <script>
+        function u(){ const v=document.getElementById('tp').value; const p=document.getElementById('port'); p.style.display=v==='java'?'none':'block'; }
         function ctl(n,a){ fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>setTimeout(()=>location.reload(), 1200));}
         
         setInterval(() => {
@@ -159,21 +160,16 @@ app.get('/', checkAuth, (req, res) => {
                 location.reload();
             }
         }, 10000);
+        u();
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// --- المنطق الخلفي المصلح (Auth) ---
+// --- المنطق الخلفي المطور (Java Fix & Auth) ---
 
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
-    // التحقق من تطابق الباسورد
-    if (password !== confirm) {
-        return res.send("<script>alert('❌ كلمات المرور غير متطابقة!'); window.location='/register';</script>");
-    }
-    // التحقق من تكرار اسم المستخدم (حل المشكلة الثانية)
-    if (users.find(u => u.username === username)) {
-        return res.send("<script>alert('⚠️ هذا المستخدم موجود بالفعل، اختر اسماً آخر!'); window.location='/register';</script>");
-    }
+    if (password !== confirm) return res.send("<script>alert('❌ الباسورد غير متطابق'); window.location='/register';</script>");
+    if (users.find(u => u.username === username)) return res.send("<script>alert('⚠️ اليوزر مستخدم بالفعل'); window.location='/register';</script>");
     users.push({ username, password });
     res.redirect('/login');
 });
@@ -181,12 +177,8 @@ app.post('/auth-register', (req, res) => {
 app.post('/auth-login', (req, res) => {
     const { username, password } = req.body;
     const user = users.find(u => u.username === username && u.password === password);
-    // التحقق من صحة البيانات (حل المشكلة الأولى)
-    if (user) {
-        req.session.user = username;
-        return res.redirect('/');
-    }
-    res.send("<script>alert('❌ اسم المستخدم أو كلمة المرور غير صحيحة!'); window.location='/login';</script>");
+    if (user) { req.session.user = username; return res.redirect('/'); }
+    res.send("<script>alert('❌ خطأ في اليوزر أو الباسورد'); window.location='/login';</script>");
 });
 
 app.post('/control', checkAuth, (req, res) => {
@@ -200,15 +192,24 @@ app.post('/control', checkAuth, (req, res) => {
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
             });
-            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; bot.startTime = null; });
+            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
         } else {
-            const [h, p] = bot.host.split(':');
-            bot.client = mineflayer.createBot({ host: h, port: p || 25565, username: name });
+            // حل مشكلة الجافا: فصل الآيبي عن البورت تلقائياً
+            let host = bot.host;
+            let port = 25565;
+            if (host.includes(':')) {
+                const parts = host.split(':');
+                host = parts[0];
+                port = parseInt(parts[1]);
+            }
+            bot.client = mineflayer.createBot({ host, port, username: name });
             bot.client.on('spawn', () => { 
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 bot.pos = bot.client.entity.position;
             });
-            bot.client.on('end', () => { bot.connected = false; bot.connecting = false; bot.startTime = null; });
+            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('end', () => { bot.connected = false; bot.connecting = false; });
             bot.client.on('death', () => bot.deathCount++);
         }
     } else if (action === 'stop') {
@@ -223,6 +224,7 @@ app.post('/control', checkAuth, (req, res) => {
 
 app.post('/add', checkAuth, (req, res) => {
     const { type, host, port, botName } = req.body;
+    if (activeBots[botName]) return res.send("<script>alert('⚠️ اسم البوت موجود مسبقاً'); window.location='/';</script>");
     activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
     res.redirect('/');
 });
@@ -230,5 +232,4 @@ app.post('/add', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Kinga Live Dash on port ${PORT}`));
+app.listen(process.env.PORT || 10000);
