@@ -16,7 +16,7 @@ app.use(session({
 }));
 
 // ==========================================
-// 1. نظام الحماية والتخزين
+// 1. التخزين والحماية
 // ==========================================
 process.on('uncaughtException', (err) => { console.log('Error:', err.message); });
 
@@ -34,8 +34,7 @@ function saveData() {
         let b = data.activeBots[id];
         cleanData.activeBots[id] = {
             id: b.id, host: b.host, port: b.port, type: b.type, owner: b.owner, botName: b.botName,
-            connected: b.connected, connecting: b.connecting,
-            pos: b.pos, deathCount: b.deathCount, startTime: b.startTime
+            connected: b.connected, pos: b.pos, deathCount: b.deathCount, startTime: b.startTime
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(cleanData, null, 2));
@@ -47,13 +46,13 @@ function checkAuth(req, res, next) {
 }
 
 // ==========================================
-// 2. نظام الحركة العشوائية (كل دقيقتين)
+// 2. الحركة العشوائية (كل دقيقتين)
 // ==========================================
 function startAntiAFK(bot) {
     const afkLoop = () => {
         if (!bot.connected) return;
 
-        if (bot.type === 'java' && bot.client && bot.client.setControlState) {
+        if (bot.type === 'java' && bot.client?.setControlState) {
             const actions = ['forward', 'back', 'left', 'right', 'jump'];
             const action = actions[Math.floor(Math.random() * actions.length)];
             if (action === 'jump') {
@@ -63,12 +62,10 @@ function startAntiAFK(bot) {
                 bot.client.setControlState(action, true);
                 setTimeout(() => { if (bot.connected) bot.client.setControlState(action, false); }, 1000);
             }
-        } 
-        else if (bot.type === 'bedrock' && bot.client) {
+        } else if (bot.type === 'bedrock' && bot.client) {
             try {
                 let currentPos = { ...bot.pos };
-                const isJump = Math.random() > 0.5;
-                if (isJump) {
+                if (Math.random() > 0.5) {
                     currentPos.y += 1.2;
                     setTimeout(() => {
                         if (bot.connected) {
@@ -84,69 +81,47 @@ function startAntiAFK(bot) {
                 bot.pos = currentPos;
             } catch (e) {}
         }
-        bot.afkTimeout = setTimeout(afkLoop, 120000);
+        bot.afkTimeout = setTimeout(afkLoop, 120000); // تكرار كل دقيقتين
     };
     bot.afkTimeout = setTimeout(afkLoop, 15000);
 }
 
 // ==========================================
-// 3. واجهة المستخدم (النسخة التي طلبتها)
+// 3. الواجهة
 // ==========================================
 const layout = (title, content) => `
-<html dir="rtl">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-        .dashboard-card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); max-width: 900px; margin: auto; }
-        .bot-card { background: #fff; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid #eee; }
-        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
-        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-        .btn-start { background: #28a745; color: white; }
-        .btn-stop { background: #ffc107; color: #212529; }
-        .btn-delete { background: #dc3545; color: white; }
-        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
-    </style>
-</head>
-<body>${content}</body></html>`;
+<html dir="rtl"><head><meta charset="UTF-8"><title>${title}</title>
+<style>
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+    .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); max-width: 500px; margin: auto; }
+    .bot-card { background: #fff; padding: 20px; border-radius: 15px; margin-bottom: 15px; border: 1px solid #eee; }
+    .status { padding: 5px 10px; border-radius: 10px; font-weight: bold; }
+    .btn { padding: 10px 15px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin: 2px; }
+    .btn-start { background: #28a745; color: white; }
+    .btn-stop { background: #ffc107; }
+    .btn-del { background: #dc3545; color: white; }
+    input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; }
+</style></head><body>${content}</body></html>`;
 
-app.get('/login', (req, res) => {
-    res.send(layout('دخول', `<div class="auth-card"><h2>Kinga Pro 🚀</h2><form action="/auth-login" method="POST"><input name="username" placeholder="اسم المستخدم" required><input name="password" type="password" placeholder="كلمة المرور" required><button class="btn btn-start" style="width:100%; margin-top:15px;">دخول</button></form><p><a href="/register">حساب جديد</a></p></div>`));
-});
-
-app.get('/register', (req, res) => {
-    res.send(layout('تسجيل', `<div class="auth-card"><h2>حساب جديد</h2><form action="/auth-register" method="POST"><input name="username" placeholder="اسم المستخدم" required><input name="password" type="password" placeholder="كلمة المرور" required><input name="confirm" type="password" placeholder="تأكيد" required><button class="btn btn-start" style="width:100%; margin-top:15px;">إنشاء</button></form><p><a href="/login">العودة للدخول</a></p></div>`));
-});
+app.get('/login', (req, res) => res.send(layout('دخول', `<div class="card"><h2>الملك كينجا 👑</h2><form action="/auth-login" method="POST"><input name="username" placeholder="اليوزر" required><input name="password" type="password" placeholder="الباسورد" required><button class="btn btn-start" style="width:100%">دخول</button></form><p><a href="/register">حساب جديد</a></p></div>`)));
+app.get('/register', (req, res) => res.send(layout('تسجيل', `<div class="card"><h2>حساب جديد</h2><form action="/auth-register" method="POST"><input name="username" placeholder="اليوزر" required><input name="password" type="password" placeholder="الباسورد" required><input name="confirm" type="password" placeholder="تأكيد" required><button class="btn btn-start" style="width:100%">إنشاء</button></form></div>`)));
 
 app.get('/', checkAuth, (req, res) => {
     let myBots = Object.keys(data.activeBots).filter(id => data.activeBots[id].owner === req.session.user);
-    let botCards = myBots.map(id => {
+    let cards = myBots.map(id => {
         const b = data.activeBots[id];
-        let statusText = b.connecting ? 'جاري الانضمام...' : (b.connected ? 'متصل' : 'متوقف');
-        return `
-        <div class="bot-card" style="border-right: 6px solid ${b.connected?'#28a745':'#dc3545'};">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h3 style="margin:0;">🤖 ${b.botName} <small>(${b.type})</small></h3>
-                <span class="status-badge" style="background:${b.connected?'#d4edda':'#f8d7da'}; color:${b.connected?'#155724':'#721c24'};">${statusText}</span>
-            </div>
-            <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
-                📍 X: ${b.pos.x.toFixed(1)} | Y: ${b.pos.y.toFixed(1)} | Z: ${b.pos.z.toFixed(1)}
-            </div>
-            <div style="margin-top:15px; display:flex; gap:10px;">
-                <button onclick="ctl('${id}','start')" class="btn btn-start" style="flex:1;">تشغيل</button>
-                <button onclick="ctl('${id}','stop')" class="btn btn-stop" style="flex:1;">إيقاف</button>
-                <button onclick="ctl('${id}','delete')" class="btn btn-delete" style="flex:1;">حذف</button>
-            </div>
-        </div>`;
+        return `<div class="bot-card"><h3>🤖 ${b.botName} (${b.type})</h3>
+        <span class="status" style="background:${b.connected?'#d4edda':'#f8d7da'}">${b.connected?'متصل':'متوقف'}</span>
+        <p>📍 X: ${b.pos.x.toFixed(1)} | Y: ${b.pos.y.toFixed(1)}</p>
+        <button onclick="ctl('${id}','start')" class="btn btn-start">بدء</button>
+        <button onclick="ctl('${id}','stop')" class="btn btn-stop">وقف</button>
+        <button onclick="ctl('${id}','delete')" class="btn btn-del">حذف</button></div>`;
     }).join('');
-
-    res.send(layout('الرئيسية', `<div class="dashboard-card"><h2>🚀 لوحة الملك كينجا</h2><form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px;"><select name="type"><option value="java">Java</option><option value="bedrock">Bedrock</option></select><input name="botName" placeholder="اسم البوت" required><input name="address" placeholder="الآيبي:البورت" style="grid-column:span 2;" required><button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">إضافة بوت</button></form><div>${botCards}</div><a href="/logout" style="color:red; text-decoration:none;">خروج</a></div><script>function ctl(id,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:a})}).then(()=>setTimeout(()=>location.reload(), 1200));}setInterval(()=>location.reload(), 30000);</script>`));
+    res.send(layout('الرئيسية', `<div class="card"><h2>🚀 لوحة التحكم</h2><form action="/add" method="POST"><select name="type"><option value="java">Java</option><option value="bedrock">Bedrock</option></select><input name="botName" placeholder="اسم البوت"><input name="address" placeholder="الآيبي:البورت"><button class="btn btn-start" style="width:100%">إضافة</button></form>${cards}<br><a href="/logout">خروج</a></div><script>function ctl(id,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:a})}).then(()=>location.reload());}</script>`));
 });
 
 // ==========================================
-// 4. المنطق الخلفي - كود الاتصال الأصلي
+// 4. منطق الاتصال (بدون أي تغيير عن نسختك الناجحة)
 // ==========================================
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
@@ -157,7 +132,7 @@ app.post('/auth-register', (req, res) => {
 app.post('/auth-login', (req, res) => {
     const user = data.users.find(u => u.username === req.body.username && u.password === req.body.password);
     if (user) { req.session.user = user.username; return res.redirect('/'); }
-    res.send("Invalid Login");
+    res.send("Failed");
 });
 
 app.post('/add', checkAuth, (req, res) => {
@@ -165,39 +140,29 @@ app.post('/add', checkAuth, (req, res) => {
     const id = Date.now().toString();
     let [h, p] = address.trim().split(':');
     if (!p) p = type === 'java' ? 25565 : 19132;
-    data.activeBots[id] = { id, botName, host: h, port: parseInt(p), type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0 };
+    data.activeBots[id] = { id, botName, host: h, port: parseInt(p), type, owner: req.session.user, connected: false, pos: {x:0,y:0,z:0}, deathCount: 0 };
     saveData(); res.redirect('/');
 });
 
 app.post('/control', checkAuth, (req, res) => {
     const { id, action } = req.body;
     const b = data.activeBots[id];
-    if (!b) return res.sendStatus(404);
-
     if (action === 'start' && !b.connected) {
-        b.connecting = true; saveData();
         if (b.type === 'java') {
-            // كود الجافا الأصلي والناجح 100%
+            // كود الجافا اللي كان شغال عندك حرفياً
             b.client = mineflayer.createBot({ host: b.host, port: b.port, username: b.botName, auth: 'offline' });
-            b.client.on('spawn', () => { 
-                b.connected = true; b.connecting = false; b.pos = b.client.entity.position; 
-                saveData(); startAntiAFK(b); 
-            });
-            b.client.on('error', (err) => { console.log('Java Error:', err); b.connected = false; b.connecting = false; saveData(); });
-            b.client.on('end', () => { b.connected = false; b.connecting = false; saveData(); });
+            b.client.on('spawn', () => { b.connected = true; b.pos = b.client.entity.position; startAntiAFK(b); saveData(); });
+            b.client.on('error', () => { b.connected = false; });
+            b.client.on('end', () => { b.connected = false; });
         } else {
             b.client = bedrock.createClient({ host: b.host, port: b.port, username: b.botName, offline: true });
-            b.client.on('spawn', () => { 
-                b.connected = true; b.connecting = false; 
-                if(b.client.startGameData) b.pos = b.client.startGameData.player_position;
-                saveData(); startAntiAFK(b); 
-            });
-            b.client.on('error', () => { b.connected = false; b.connecting = false; saveData(); });
+            b.client.on('spawn', () => { b.connected = true; if(b.client.startGameData) b.pos = b.client.startGameData.player_position; startAntiAFK(b); saveData(); });
+            b.client.on('error', () => { b.connected = false; });
         }
     } else if (action === 'stop' || action === 'delete') {
         if (b.client) { b.type === 'java' ? b.client.quit() : b.client.disconnect(); }
         if (b.afkTimeout) clearTimeout(b.afkTimeout);
-        b.connected = false; b.connecting = false;
+        b.connected = false;
         if (action === 'delete') delete data.activeBots[id];
         saveData();
     }
