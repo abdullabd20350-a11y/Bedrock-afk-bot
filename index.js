@@ -2,7 +2,6 @@ const bedrock = require('bedrock-protocol');
 const mineflayer = require('mineflayer');
 const express = require('express');
 const session = require('express-session');
-const fs = require('fs'); 
 const app = express();
 
 app.use(express.json());
@@ -15,37 +14,14 @@ app.use(session({
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
-// ==========================================
-// 1. نظام الحماية والتخزين الدائم
-// ==========================================
-process.on('uncaughtException', (err) => { console.log('[Anti-Crash] Uncaught Exception:', err.message); });
-process.on('unhandledRejection', (reason) => { console.log('[Anti-Crash] Unhandled Rejection:', reason); });
-
-const dbPath = './database.json';
-let data = { users: [], activeBots: {} };
-
-if (fs.existsSync(dbPath)) {
-    try { data = JSON.parse(fs.readFileSync(dbPath)); } 
-    catch (e) { console.log("DB Load Error, starting fresh."); }
-}
-
-function saveData() {
-    const dataToSave = JSON.parse(JSON.stringify(data));
-    Object.keys(dataToSave.activeBots).forEach(name => {
-        delete dataToSave.activeBots[name].client;
-        delete dataToSave.activeBots[name].connectTimeout; // لا نحفظ المؤقت في الملف
-    });
-    fs.writeFileSync(dbPath, JSON.stringify(dataToSave, null, 2));
-}
+let users = []; 
+let activeBots = {}; 
 
 function checkAuth(req, res, next) {
     if (!req.session.user) return res.redirect('/login');
     next();
 }
 
-// ==========================================
-// 2. واجهة المستخدم (HTML)
-// ==========================================
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
 <head>
@@ -72,7 +48,6 @@ const layout = (title, content, lang = 'ar') => `
 </head>
 <body>${content}</body></html>`;
 
-// --- مسارات الدخول والتسجيل ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
@@ -102,14 +77,13 @@ app.get('/register', (req, res) => {
     </div>`, isAr ? 'ar' : 'en'));
 });
 
-// --- لوحة التحكم ---
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
     const isAr = lang === 'ar';
-    let myBots = Object.keys(data.activeBots).filter(n => data.activeBots[n].owner === req.session.user);
+    let myBots = Object.keys(activeBots).filter(n => activeBots[n].owner === req.session.user);
     
     let botCards = myBots.map(name => {
-        const b = data.activeBots[name];
+        const b = activeBots[name];
         let statusClass = b.connecting ? 'status-connecting' : (b.connected ? 'status-online' : 'status-offline');
         let statusText = b.connecting ? (isAr ? 'جاري الانضمام...' : 'Connecting...') : (b.connected ? (isAr ? 'متصل' : 'Online') : (isAr ? 'متوقف' : 'Stopped'));
 
@@ -135,7 +109,7 @@ app.get('/', checkAuth, (req, res) => {
             </div>
             <div style="margin-top:15px; display:flex; gap:10px;">
                 <button onclick="ctl('${name}','start')" class="btn btn-start" style="flex:1;" ${b.connected || b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
-                <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!b.connected && !b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
+                <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!b.connected ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
                 <button onclick="ctl('${name}','delete')" class="btn btn-delete" style="flex:1;">${isAr?'حذف':'Delete'}</button>
             </div>
         </div>`;
@@ -161,11 +135,7 @@ app.get('/', checkAuth, (req, res) => {
         <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
     </div>
     <script>
-        // إظهار الاستجابة الفورية عند الضغط لمنع النقر المزدوج
-        function ctl(n,a){ 
-            fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})})
-            .then(()=>setTimeout(()=>location.reload(), 800));
-        }
+        function ctl(n,a){ fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>setTimeout(()=>location.reload(), 1200));}
         
         setInterval(() => {
             document.querySelectorAll('[id^="timer-"]').forEach(el => {
@@ -189,30 +159,24 @@ app.get('/', checkAuth, (req, res) => {
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// ==========================================
-// 3. العمليات الخلفية الأساسية
-// ==========================================
-
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
     if (password !== confirm) return res.send("<script>alert('❌ الباسورد غير متطابق'); window.location='/register';</script>");
-    if (data.users.find(u => u.username === username)) return res.send("<script>alert('⚠️ اليوزر مستخدم بالفعل'); window.location='/register';</script>");
-    
-    data.users.push({ username, password });
-    saveData();
+    if (users.find(u => u.username === username)) return res.send("<script>alert('⚠️ اليوزر مستخدم بالفعل'); window.location='/register';</script>");
+    users.push({ username, password });
     res.redirect('/login');
 });
 
 app.post('/auth-login', (req, res) => {
     const { username, password } = req.body;
-    const user = data.users.find(u => u.username === username && u.password === password);
+    const user = users.find(u => u.username === username && u.password === password);
     if (user) { req.session.user = username; return res.redirect('/'); }
     res.send("<script>alert('❌ خطأ في اليوزر أو الباسورد'); window.location='/login';</script>");
 });
 
 app.post('/add', checkAuth, (req, res) => {
     const { type, address, botName } = req.body;
-    if (data.activeBots[botName]) return res.send("<script>alert('⚠️ اسم البوت موجود مسبقاً'); window.location='/';</script>");
+    if (activeBots[botName]) return res.send("<script>alert('⚠️ اسم البوت موجود مسبقاً'); window.location='/';</script>");
 
     let host = address.trim();
     let port = type === 'bedrock' ? 19132 : 25565;
@@ -223,85 +187,61 @@ app.post('/add', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    data.activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
-    saveData();
+    activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
     res.redirect('/');
 });
 
 app.post('/control', checkAuth, (req, res) => {
     const { name, action } = req.body;
-    const bot = data.activeBots[name];
-    
-    // حل المشكلة: التأكد من أننا لا نبدأ اتصالاً إذا كان هناك اتصال قيد المعالجة (منع النقرة المزدوجة)
-    if (action === 'start' && !bot.connected && !bot.connecting) {
+    const bot = activeBots[name];
+    if (action === 'start' && !bot.connected) {
         bot.connecting = true;
-        
-        // حل التعليق: مؤقت 45 ثانية، إذا لم يدخل السيرفر سيلغي الاتصال ويعود "متوقف"
-        bot.connectTimeout = setTimeout(() => {
-            if (bot.connecting) {
-                console.log(`[System] Timeout! ${name} could not connect.`);
-                bot.connecting = false;
-                bot.connected = false;
-                if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-            }
-        }, 45000);
-
-        // دالة تنظيف المؤقت إذا نجح الاتصال أو فشل بسرعة
-        const clearTimer = () => { if(bot.connectTimeout) clearTimeout(bot.connectTimeout); };
-
         if (bot.type === 'bedrock') {
             bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: name, offline: true });
             
             bot.client.on('spawn', () => { 
-                clearTimer();
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
             });
-            bot.client.on('error', () => { clearTimer(); bot.connected = false; bot.connecting = false; });
-            bot.client.on('close', () => { clearTimer(); bot.connected = false; bot.connecting = false; });
+            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
             
         } else {
-            try {
-                bot.client = mineflayer.createBot({ 
-                    host: bot.host, 
-                    port: bot.port, 
-                    username: name,
-                    auth: 'offline', 
-                    version: false
-                });
-                
-                bot.client.on('spawn', () => { 
-                    clearTimer();
-                    bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
-                    bot.pos = bot.client.entity.position;
-                });
-                
-                bot.client.on('kicked', (reason) => {
-                    clearTimer(); console.log(`[Java Kicked] -> ${reason}`);
-                    bot.connected = false; bot.connecting = false;
-                });
-
-                bot.client.on('error', (err) => { 
-                    clearTimer(); console.log(`[Java Network Error Caught]`);
-                    bot.connected = false; bot.connecting = false; 
-                });
-                
-                bot.client.on('end', () => { clearTimer(); bot.connected = false; bot.connecting = false; });
-                bot.client.on('death', () => bot.deathCount++);
-            } catch (err) {
-                clearTimer(); console.log("[Java Critical Error Caught]");
+            // كود الجافا المطور للصبر على سيرفرات Aternos ومعرفة سبب الطرد
+            bot.client = mineflayer.createBot({ 
+                host: bot.host, 
+                port: bot.port, 
+                username: name,
+                auth: 'offline', 
+                version: false, // التعرف التلقائي على الإصدار
+                checkTimeoutInterval: 60000 // انتظار السيرفر لمدة دقيقة بدلاً من 30 ثانية لتجنب الطرد السريع
+            });
+            
+            bot.client.on('spawn', () => { 
+                bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
+                bot.pos = bot.client.entity.position;
+            });
+            
+            // تسجيل سبب الطرد من السيرفر لمعرفة المشكلة الحقيقية
+            bot.client.on('kicked', (reason) => {
+                console.log(`[Java Bot Kicked] -> ${reason}`);
                 bot.connected = false; bot.connecting = false;
-            }
+            });
+
+            bot.client.on('error', (err) => { 
+                console.log(`[Java Bot Error] -> ${err.message}`);
+                bot.connected = false; bot.connecting = false; 
+            });
+            
+            bot.client.on('end', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('death', () => bot.deathCount++);
         }
     } else if (action === 'stop') {
-        if(bot.connectTimeout) clearTimeout(bot.connectTimeout); // إلغاء المؤقت عند الضغط على زر التوقف
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         bot.connected = false; bot.connecting = false; bot.startTime = null;
     } else if (action === 'delete') {
-        if(bot.connectTimeout) clearTimeout(bot.connectTimeout);
-        if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        delete data.activeBots[name];
-        saveData();
+        if (bot.client) bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit();
+        delete activeBots[name];
     }
     res.sendStatus(200);
 });
@@ -309,4 +249,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Anti-Hang Active!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running!'));
