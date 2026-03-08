@@ -16,7 +16,7 @@ app.use(session({
 }));
 
 // ==========================================
-// 1. نظام الحماية والتخزين (تم حل خطأ 503 هنا)
+// 1. نظام الحماية والتخزين الدائم
 // ==========================================
 process.on('uncaughtException', (err) => { console.log('[Anti-Crash] Uncaught Exception:', err.message); });
 process.on('unhandledRejection', (reason) => { console.log('[Anti-Crash] Unhandled Rejection:', reason); });
@@ -29,12 +29,10 @@ if (fs.existsSync(dbPath)) {
     catch (e) { console.log("DB Load Error, starting fresh."); }
 }
 
-// الحل الجذري لمشكلة 503 (حفظ البيانات الآمن)
 function saveData() {
     let cleanData = { users: data.users, activeBots: {} };
     for (let name in data.activeBots) {
         let b = data.activeBots[name];
-        // ننسخ فقط البيانات الأساسية الخفيفة لتجنب انهيار السيرفر
         cleanData.activeBots[name] = {
             host: b.host, port: b.port, type: b.type, owner: b.owner,
             connected: b.connected, connecting: b.connecting,
@@ -57,22 +55,17 @@ function startAntiAFK(bot) {
         if (!bot.connected) return;
 
         if (bot.type === 'bedrock' && bot.client) {
-            // حركة البيدروك: التلويح باليد (Swing Arm)
             bot.client.queue('animate', { action_id: 1, runtime_entity_id: 1 });
             console.log(`[Anti-AFK] ${bot.client.username || 'Bedrock Bot'} performed an action.`);
         } else if (bot.client && bot.client.setControlState) {
-            // حركة الجافا: القفز (Jump)
             bot.client.setControlState('jump', true);
             setTimeout(() => { if (bot.connected) bot.client.setControlState('jump', false); }, 500);
             console.log(`[Anti-AFK] ${bot.client.username} jumped.`);
         }
 
-        // تحديد وقت عشوائي للمرة القادمة: بين دقيقتين (120,000ms) و 3 دقائق (180,000ms)
         const nextTime = Math.floor(Math.random() * (180000 - 120000 + 1)) + 120000;
         bot.afkTimeout = setTimeout(afkLoop, nextTime);
     };
-
-    // البدء بعد دقيقتين لأول مرة
     bot.afkTimeout = setTimeout(afkLoop, 120000);
 }
 
@@ -105,9 +98,11 @@ const layout = (title, content, lang = 'ar') => `
         .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
+        .btn-edit { background: #17a2b8; color: white; }
         .btn-delete { background: #dc3545; color: white; }
         .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
+        .edit-panel { display: none; background: #e9ecef; padding: 15px; border-radius: 10px; margin-top: 15px; }
     </style>
 </head>
 <body>${content}</body></html>`;
@@ -150,6 +145,7 @@ app.get('/', checkAuth, (req, res) => {
         const b = data.activeBots[name];
         let statusClass = b.connecting ? 'status-connecting' : (b.connected ? 'status-online' : 'status-offline');
         let statusText = b.connecting ? (isAr ? 'جاري الانضمام...' : 'Connecting...') : (b.connected ? (isAr ? 'متصل' : 'Online') : (isAr ? 'متوقف' : 'Stopped'));
+        let isBusy = b.connected || b.connecting;
 
         return `
         <div class="bot-card" style="border-${isAr?'right':'left'}: 6px solid ${b.connected?'#28a745':(b.connecting?'#ffc107':'#dc3545')};">
@@ -157,6 +153,7 @@ app.get('/', checkAuth, (req, res) => {
                 <h3 style="margin:0;">🤖 ${name} <small>(${b.type})</small></h3>
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
+            
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                     <strong>📍 ${isAr?'الإحداثيات':'Coordinates'}:</strong>
@@ -171,9 +168,20 @@ app.get('/', checkAuth, (req, res) => {
                     <span>💀 ${isAr?'الوفيات':'Deaths'}: <b>${b.deathCount}</b></span>
                 </div>
             </div>
+
+            <div id="edit-${name}" class="edit-panel">
+                <form action="/edit" method="POST" style="display:flex; gap:10px; margin:0; align-items:center;">
+                    <input type="hidden" name="botName" value="${name}">
+                    <select name="type" style="margin:0; width:30%;"><option value="bedrock" ${b.type==='bedrock'?'selected':''}>Bedrock</option><option value="java" ${b.type==='java'?'selected':''}>Java</option></select>
+                    <input name="address" value="${b.host}:${b.port}" style="margin:0; width:50%;" required>
+                    <button class="btn btn-start" style="width:20%; padding:10px;">${isAr?'حفظ':'Save'}</button>
+                </form>
+            </div>
+
             <div style="margin-top:15px; display:flex; gap:10px;">
-                <button onclick="ctl('${name}','start')" class="btn btn-start" style="flex:1;" ${b.connected || b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
-                <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!b.connected && !b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
+                <button onclick="ctl('${name}','start')" class="btn btn-start" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
+                <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
+                <button onclick="toggleEdit('${name}')" class="btn btn-edit" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تعديل':'Edit'}</button>
                 <button onclick="ctl('${name}','delete')" class="btn btn-delete" style="flex:1;">${isAr?'حذف':'Delete'}</button>
             </div>
         </div>`;
@@ -199,6 +207,11 @@ app.get('/', checkAuth, (req, res) => {
         <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
     </div>
     <script>
+        function toggleEdit(name) {
+            const el = document.getElementById('edit-' + name);
+            el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
+        }
+
         function ctl(n,a){ 
             fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})})
             .then(()=>setTimeout(()=>location.reload(), 800));
@@ -227,7 +240,7 @@ app.get('/', checkAuth, (req, res) => {
 });
 
 // ==========================================
-// 4. العمليات الخلفية الأساسية
+// 4. العمليات الخلفية الأساسية (بما فيها التعديل)
 // ==========================================
 
 app.post('/auth-register', (req, res) => {
@@ -261,7 +274,31 @@ app.post('/add', checkAuth, (req, res) => {
     }
 
     data.activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
-    saveData(); // الحفظ الآمن هنا لن يسبب 503
+    saveData(); 
+    res.redirect('/');
+});
+
+// نظام تعديل البوت الجديد
+app.post('/edit', checkAuth, (req, res) => {
+    const { botName, type, address } = req.body;
+    const bot = data.activeBots[botName];
+    
+    // منع التعديل إذا كان البوت شغالاً أو غير موجود
+    if (!bot || bot.connected || bot.connecting) return res.redirect('/');
+
+    let host = address.trim();
+    let port = type === 'bedrock' ? 19132 : 25565;
+
+    if (address.includes(':')) {
+        const parts = address.split(':');
+        host = parts[0].trim();
+        port = parseInt(parts[1].trim());
+    }
+
+    bot.type = type;
+    bot.host = host;
+    bot.port = port;
+    saveData();
     res.redirect('/');
 });
 
@@ -289,22 +326,28 @@ app.post('/control', checkAuth, (req, res) => {
                 clearTimer();
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
-                startAntiAFK(bot); // تفعيل الحركة العشوائية
+                startAntiAFK(bot); 
             });
             bot.client.on('error', () => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; });
             bot.client.on('close', () => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; });
             
         } else {
             try {
+                // السر هنا لحل مشكلة Aternos الجافا: checkTimeoutInterval
                 bot.client = mineflayer.createBot({ 
-                    host: bot.host, port: bot.port, username: name, auth: 'offline', version: false
+                    host: bot.host, 
+                    port: bot.port, 
+                    username: name, 
+                    auth: 'offline', 
+                    version: false,
+                    checkTimeoutInterval: 60000 // انتظار 60 ثانية لحل بطء سيرفرات Aternos
                 });
                 
                 bot.client.on('spawn', () => { 
                     clearTimer();
                     bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                     bot.pos = bot.client.entity.position;
-                    startAntiAFK(bot); // تفعيل الحركة العشوائية
+                    startAntiAFK(bot); 
                 });
                 
                 bot.client.on('kicked', (reason) => {
@@ -326,7 +369,7 @@ app.post('/control', checkAuth, (req, res) => {
         }
     } else if (action === 'stop') {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout); 
-        stopAntiAFK(bot); // إيقاف الحركة العشوائية عند الإيقاف
+        stopAntiAFK(bot); 
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         bot.connected = false; bot.connecting = false; bot.startTime = null;
     } else if (action === 'delete') {
@@ -342,4 +385,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Anti-Hang & Anti-AFK Active!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Edit Feature Added!'));
