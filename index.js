@@ -4,6 +4,9 @@ const session = require('express-session');
 const fs = require('fs');
 const app = express();
 
+// 🔥 سطر الحماية لمنع انهيار الموقع وضعناه هنا 🔥
+process.on('uncaughtException', (err) => { console.log('[System Safe Guard]:', err.message); });
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -26,7 +29,7 @@ if (fs.existsSync(dbPath)) {
             data.bots[id].connecting = false;
             data.bots[id].shouldRun = false; 
             data.bots[id].retryCount = 0;
-            data.bots[id].verifyLink = null; // مسار جديد لحفظ رابط التحقق
+            data.bots[id].verifyLink = null; 
         }
     } catch (e) { data = { bots: {} }; }
 }
@@ -38,7 +41,7 @@ function saveDB() {
         toSave.bots[id] = {
             id: b.id, host: b.host, port: b.port, botName: b.botName,
             pos: b.pos, connected: b.connected, connecting: b.connecting,
-            verifyLink: b.verifyLink // حفظ الرابط إذا وجد
+            verifyLink: b.verifyLink 
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(toSave, null, 2));
@@ -55,7 +58,7 @@ function connectBot(id) {
 
     b.connecting = true;
     b.connected = false;
-    b.verifyLink = null; // تصفير الرابط القديم
+    b.verifyLink = null; 
     saveDB();
 
     try {
@@ -72,19 +75,17 @@ function connectBot(id) {
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
-        // 🔥 رادار الشات (التقاط رابط FalixNodes)
+        // 🔥 رادار الشات (التقاط رابط التحقق) 🔥
         client.on('text', (packet) => {
             const msg = packet.message;
             if (msg && msg.includes('falixnodes.net/verify')) {
-                // استخراج الرابط من الشات باستخدام الذكاء البرمجي (Regex)
                 const match = msg.match(/(https:\/\/client\.falixnodes\.net\/verify\?t=[a-zA-Z0-9]+)/);
                 if (match) {
-                    b.verifyLink = match[1]; // حفظ الرابط
+                    b.verifyLink = match[1]; 
                     console.log(`[تحذير!] مطلوب تحقق للبوت ${b.botName}: ${b.verifyLink}`);
                     saveDB();
                 }
             }
-            // إذا شكرك السيرفر على التحقق، نخفي الزر
             if (msg && msg.includes('Thanks for verifying')) {
                 b.verifyLink = null;
                 saveDB();
@@ -210,6 +211,7 @@ const ui = (content) => `
 app.get('/', (req, res) => {
     let botList = Object.values(data.bots).map(b => {
         let statusText = b.connecting ? 'جاري الاتصال...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
+        // زر التحقق يظهر فقط إذا التقط البوت الرابط
         let verifyBtn = b.verifyLink ? `<a href="${b.verifyLink}" target="_blank" class="btn btn-verify" onclick="setTimeout(()=>location.reload(), 5000)">⚠️ السيرفر يطلب التحقق! اضغط هنا ⚠️</a>` : '';
         
         return `
