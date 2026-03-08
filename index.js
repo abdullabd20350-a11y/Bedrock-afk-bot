@@ -8,7 +8,7 @@ const app = express();
 const config = {
     host: '162.55.100.208',   
     port: 25199,             
-    username: 'Kinga_Bot',   
+    username: 'Bot_1',   
     moveInterval: 60000      // حركة كل دقيقة (60 ثانية)
 };
 
