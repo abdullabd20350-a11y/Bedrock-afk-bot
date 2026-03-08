@@ -4,6 +4,7 @@ const session = require('express-session');
 const fs = require('fs');
 const app = express();
 
+// 🔥 سطر الحماية لمنع انهيار الموقع
 process.on('uncaughtException', (err) => { console.log('[System Safe Guard]:', err.message); });
 
 app.use(express.json());
@@ -14,6 +15,9 @@ app.use(session({
     saveUninitialized: true
 }));
 
+// ==========================================
+// 1. إدارة البيانات
+// ==========================================
 const dbPath = './database.json';
 let data = { bots: {} };
 
@@ -26,6 +30,9 @@ if (fs.existsSync(dbPath)) {
             data.bots[id].shouldRun = false; 
             data.bots[id].retryCount = 0;
             data.bots[id].verifyLink = null; 
+            // تهيئة الصحة والجوع إذا لم تكن موجودة
+            if (data.bots[id].health === undefined) data.bots[id].health = 20;
+            if (data.bots[id].hunger === undefined) data.bots[id].hunger = 20;
         }
     } catch (e) { data = { bots: {} }; }
 }
@@ -37,7 +44,9 @@ function saveDB() {
         toSave.bots[id] = {
             id: b.id, host: b.host, port: b.port, botName: b.botName,
             pos: b.pos, connected: b.connected, connecting: b.connecting,
-            verifyLink: b.verifyLink 
+            verifyLink: b.verifyLink,
+            health: b.health, // حفظ الهيل
+            hunger: b.hunger  // حفظ الجوع
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(toSave, null, 2));
@@ -45,6 +54,9 @@ function saveDB() {
 
 let activeClients = {}; 
 
+// ==========================================
+// 2. محرك الاتصال 
+// ==========================================
 function connectBot(id) {
     const b = data.bots[id];
     if (!b || !b.shouldRun) return;
@@ -52,6 +64,8 @@ function connectBot(id) {
     b.connecting = true;
     b.connected = false;
     b.verifyLink = null; 
+    b.health = 20;
+    b.hunger = 20;
     saveDB();
 
     try {
@@ -71,6 +85,7 @@ function connectBot(id) {
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
+        // التقاط رابط التحقق
         client.on('text', (packet) => {
             const msg = packet.message;
             if (msg && msg.includes('falixnodes.net/verify')) {
@@ -96,30 +111,19 @@ function connectBot(id) {
 
             client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
 
-            // محرك الفيزياء المتطور (إرسال حزم التفاعل باستمرار)
             if (b.physicsInterval) clearInterval(b.physicsInterval);
             b.physicsInterval = setInterval(() => {
                 if (!b.connected || !isSpawned) return clearInterval(b.physicsInterval);
                 try {
                     tickCount++;
-                    // إرسال موقع دقيق لحل مشكلة Y وإثبات الحضور المادي
                     client.queue('player_auth_input', {
-                        pitch: 0, 
-                        yaw: 0, 
-                        position: b.pos, 
-                        move_vector: { x: 0, z: 0 }, 
-                        head_yaw: 0, 
-                        input_data: 0n,
-                        play_mode: 0, 
-                        interaction_model: 0, 
-                        gaze_direction: { x: 0, y: 0, z: 1 }, 
-                        tick: tickCount, 
-                        delta: { x: 0, y: 0, z: 0 }
+                        pitch: 0, yaw: 0, position: b.pos, move_vector: { x: 0, z: 0 }, 
+                        head_yaw: 0, input_data: 0n, play_mode: 0, interaction_model: 0, 
+                        gaze_direction: { x: 0, y: 0, z: 1 }, tick: tickCount, delta: { x: 0, y: 0, z: 0 }
                     });
                 } catch (e) {}
             }, 50);
 
-            // تأرجح اليد لضمان النشاط
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected || !isSpawned) return clearInterval(b.moveInterval);
@@ -135,7 +139,23 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        // الاستجابة الدقيقة لتحديثات السيرفر
+        // 🔥 التقاط معلومات الهيل والجوع من السيرفر 🔥
+        client.on('update_attributes', (pkt) => {
+            if (pkt.runtime_entity_id === b.runtimeId) {
+                let updated = false;
+                for (const attr of pkt.attributes) {
+                    if (attr.name === 'minecraft:health') {
+                        b.health = attr.current;
+                        updated = true;
+                    } else if (attr.name === 'minecraft:player.hunger') {
+                        b.hunger = attr.current;
+                        updated = true;
+                    }
+                }
+                if (updated) saveDB();
+            }
+        });
+
         client.on('move_player', (pkt) => {
             if (pkt.runtime_entity_id === b.runtimeId) {
                 b.pos = pkt.position;
@@ -144,7 +164,6 @@ function connectBot(id) {
         });
 
         client.on('respawn', (pkt) => {
-             // عندما يموت أو يرسبن، نقبل الإحداثيات ونؤكد الاستعداد
             b.pos = pkt.position;
             saveDB();
             client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 2, position: b.pos });
@@ -194,25 +213,30 @@ function handleDisconnect(id) {
     }
 }
 
+// ==========================================
+// 3. الواجهة (HTML) مع الهيل والجوع
+// ==========================================
 const ui = (content) => `
 <html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>لوحة الملك كينجا</title>
 <style>
     body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; text-align: center; }
     .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; text-align: right; border-right: 6px solid #dc3545; position: relative; }
+    .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; flex-direction: column; text-align: right; border-right: 6px solid #dc3545; position: relative; }
     .bot-card.online { border-right-color: #28a745; }
+    .top-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
     .status-on { color: #28a745; font-weight: bold; background: #d4edda; padding: 5px 10px; border-radius: 10px; }
     .status-off { color: #dc3545; font-weight: bold; background: #f8d7da; padding: 5px 10px; border-radius: 10px; }
     .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin: 2px; transition: 0.2s; text-decoration: none; display: inline-block; }
     .btn-start { background: #28a745; color: white; }
     .btn-stop { background: #ffc107; color: #222; }
     .btn-del { background: #dc3545; color: white; }
-    .btn-refresh { background: #17a2b8; color: white; margin-bottom: 20px; }
+    .btn-refresh { background: #17a2b8; color: white; margin-bottom: 20px; font-size: 1.1em;}
     .btn-verify { background: #e74c3c; color: white; animation: blink 1s infinite; width: 100%; display: block; margin-top: 10px; text-align: center; font-size: 1.1em; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     input { padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin: 5px; width: 100%; max-width: 180px; }
-    .xyz { background: #2c3e50; color: #34e7e4; padding: 10px; border-radius: 10px; font-family: 'Courier New', monospace; font-weight: bold; text-align: left; direction: ltr; }
+    .xyz { background: #2c3e50; color: #34e7e4; padding: 10px; border-radius: 10px; font-family: 'Courier New', monospace; font-weight: bold; text-align: left; direction: ltr; margin: 0 15px; }
+    .stats-box { background: #fff3cd; color: #856404; padding: 10px; border-radius: 10px; margin-top: 15px; font-weight: bold; display: flex; justify-content: space-around; border: 1px solid #ffeeba;}
 </style></head><body><div class="container">${content}</div>
 <script>
     function ctl(id, action) {
@@ -229,19 +253,28 @@ app.get('/', (req, res) => {
         let statusText = b.connecting ? 'جاري الاتصال...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
         let verifyBtn = b.verifyLink ? `<a href="${b.verifyLink}" target="_blank" class="btn btn-verify" onclick="setTimeout(()=>location.reload(), 5000)">⚠️ السيرفر يطلب التحقق! اضغط هنا ⚠️</a>` : '';
         
+        let healthVal = b.health !== undefined ? Math.round(b.health) : 20;
+        let hungerVal = b.hunger !== undefined ? Math.round(b.hunger) : 20;
+
         return `
         <div class="bot-card ${b.connected ? 'online' : ''}">
-            <div style="flex: 1;">
-                <strong>🤖 ${b.botName}</strong> <br>
-                <small style="color: #666;">${b.host}:${b.port}</small> <br><br>
-                <span class="${b.connected ? 'status-on' : 'status-off'}">${statusText}</span>
-                ${verifyBtn}
+            <div class="top-row">
+                <div style="flex: 1;">
+                    <strong>🤖 ${b.botName}</strong> <br>
+                    <small style="color: #666;">${b.host}:${b.port}</small> <br><br>
+                    <span class="${b.connected ? 'status-on' : 'status-off'}">${statusText}</span>
+                </div>
+                <div class="xyz">X: ${b.pos && b.pos.x ? b.pos.x.toFixed(1) : 0}<br>Y: ${b.pos && b.pos.y ? b.pos.y.toFixed(1) : 0}<br>Z: ${b.pos && b.pos.z ? b.pos.z.toFixed(1) : 0}</div>
+                <div>
+                    <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled opacity:0.5':''}>تشغيل</button>
+                    <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled opacity:0.5':''}>إيقاف</button>
+                    <button class="btn btn-del" onclick="ctl('${b.id}', 'delete')">حذف</button>
+                </div>
             </div>
-            <div class="xyz" style="margin: 0 15px;">X: ${b.pos && b.pos.x ? b.pos.x.toFixed(1) : 0}<br>Y: ${b.pos && b.pos.y ? b.pos.y.toFixed(1) : 0}<br>Z: ${b.pos && b.pos.z ? b.pos.z.toFixed(1) : 0}</div>
-            <div>
-                <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled opacity:0.5':''}>تشغيل</button>
-                <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled opacity:0.5':''}>إيقاف</button>
-                <button class="btn btn-del" onclick="ctl('${b.id}', 'delete')">حذف</button>
+            ${verifyBtn}
+            <div class="stats-box">
+                <span>❤️ الهيل: ${healthVal} / 20</span>
+                <span>🍗 الجوع: ${hungerVal} / 20</span>
             </div>
         </div>`
     }).join('');
@@ -256,7 +289,7 @@ app.get('/', (req, res) => {
             <button class="btn btn-start">إضافة بوت</button>
         </form>
         
-        <button class="btn btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة</button>
+        <button class="btn btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة (اضغط لمعرفة الهيل والجوع)</button>
         
         <div id="botList">${botList || '<p style="color: #999;">لا توجد بوتات مضافة حالياً</p>'}</div>
     `));
@@ -266,7 +299,8 @@ app.post('/add', (req, res) => {
     const id = Date.now().toString();
     data.bots[id] = { 
         id, botName: req.body.botName, host: req.body.host, port: parseInt(req.body.port), 
-        pos: { x: 0, y: 0, z: 0 }, connected: false, connecting: false, shouldRun: false, retryCount: 0, verifyLink: null 
+        pos: { x: 0, y: 0, z: 0 }, connected: false, connecting: false, shouldRun: false, retryCount: 0, verifyLink: null,
+        health: 20, hunger: 20
     };
     saveDB(); res.redirect('/');
 });
