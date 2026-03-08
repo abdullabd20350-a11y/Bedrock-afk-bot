@@ -54,7 +54,7 @@ function startAntiAFK(bot) {
         if (!bot.connected) return;
 
         if (bot.type === 'java' && bot.client && bot.client.setControlState) {
-            // حركة الجافا: ضغط أزرار حقيقي
+            // حركة الجافا: مشي حقيقي لمدة ثانية واحدة
             const actions = ['forward', 'back', 'left', 'right', 'jump'];
             const action = actions[Math.floor(Math.random() * actions.length)];
             if (action === 'jump') {
@@ -64,34 +64,26 @@ function startAntiAFK(bot) {
                 bot.client.setControlState(action, true);
                 setTimeout(() => { if (bot.connected) bot.client.setControlState(action, false); }, 1000);
             }
-            console.log(`[Java] ${bot.botName} moved: ${action}`);
         } 
         else if (bot.type === 'bedrock' && bot.client) {
-            // حركة البيدروك: تحديث إحداثيات حقيقي (مشي/قفز)
+            // حركة البيدروك: تحديث إحداثيات (مشي/قفز)
             try {
                 let currentPos = { ...bot.pos };
                 const isJump = Math.random() > 0.5;
-                
                 if (isJump) {
-                    currentPos.y += 1.2; // قفزة
+                    currentPos.y += 1.2;
                     setTimeout(() => {
                         if (bot.connected) {
-                            currentPos.y -= 1.2; // هبوط
+                            currentPos.y -= 1.2;
                             bot.client.queue('move_player', { runtime_entity_id: bot.client.entityId, position: currentPos, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 });
                         }
                     }, 500);
                 } else {
-                    // مشي بلوكة واحدة عشوائياً
                     currentPos.x += (Math.random() - 0.5) * 2;
                     currentPos.z += (Math.random() - 0.5) * 2;
                 }
-
-                bot.client.queue('move_player', { 
-                    runtime_entity_id: bot.client.entityId, 
-                    position: currentPos, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 
-                });
+                bot.client.queue('move_player', { runtime_entity_id: bot.client.entityId, position: currentPos, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 });
                 bot.pos = currentPos;
-                console.log(`[Bedrock] ${bot.botName} moved physically`);
             } catch (e) {}
         }
         bot.afkTimeout = setTimeout(afkLoop, 120000); // تكرار كل دقيقتين
@@ -100,7 +92,7 @@ function startAntiAFK(bot) {
 }
 
 // ==========================================
-// 3. الواجهة والمنطق (كما هي في نسختك الناجحة)
+// 3. واجهة المستخدم
 // ==========================================
 const layout = (title, content, lang = 'ar') => `
 <html dir="rtl">
@@ -115,11 +107,9 @@ const layout = (title, content, lang = 'ar') => `
         .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
-        .btn-edit { background: #17a2b8; color: white; }
         .btn-delete { background: #dc3545; color: white; }
-        .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        .edit-panel { display: none; background: #e9ecef; padding: 15px; border-radius: 10px; margin-top: 15px; }
+        .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
     </style>
 </head>
 <body>${content}</body></html>`;
@@ -144,23 +134,15 @@ app.get('/', checkAuth, (req, res) => {
                 <span class="status-badge" style="background:${b.connected?'#d4edda':'#f8d7da'}; color:${b.connected?'#155724':'#721c24'};">${statusText}</span>
             </div>
             <div style="margin-top:10px; font-family:monospace;">📍 X: ${b.pos.x.toFixed(1)} | Y: ${b.pos.y.toFixed(1)} | Z: ${b.pos.z.toFixed(1)}</div>
-            <div id="edit-${id}" class="edit-panel">
-                <form action="/edit" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-                    <input type="hidden" name="id" value="${id}"><input name="botName" value="${b.botName}">
-                    <input name="address" value="${b.host}:${b.port}" style="grid-column:span 2;">
-                    <button class="btn btn-start" style="grid-column:span 2;">حفظ</button>
-                </form>
-            </div>
             <div style="margin-top:15px; display:flex; gap:10px;">
                 <button onclick="ctl('${id}','start')" class="btn btn-start" style="flex:1;">تشغيل</button>
                 <button onclick="ctl('${id}','stop')" class="btn btn-stop" style="flex:1;">إيقاف</button>
-                <button onclick="toggleEdit('${id}')" class="btn btn-edit" style="flex:1;">تعديل</button>
                 <button onclick="ctl('${id}','delete')" class="btn btn-delete" style="flex:1;">حذف</button>
             </div>
         </div>`;
     }).join('');
 
-    res.send(layout('الرئيسية', `<div class="dashboard-card"><h2>🚀 لوحة الملك كينجا</h2><form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px;"><select name="type"><option value="java">Java</option><option value="bedrock">Bedrock</option></select><input name="botName" placeholder="اسم البوت"><input name="address" placeholder="الآيبي:البورت" style="grid-column:span 2;"><button class="btn btn-start" style="grid-column:span 2;">إضافة</button></form><div>${botCards}</div><a href="/logout" style="color:red;">خروج</a></div><script>function toggleEdit(id){const el=document.getElementById('edit-'+id);el.style.display=(el.style.display==='none')?'block':'none';}function ctl(id,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:a})}).then(()=>setTimeout(()=>location.reload(), 1000));}setInterval(()=>location.reload(), 30000);</script>`));
+    res.send(layout('الرئيسية', `<div class="dashboard-card"><h2>🚀 لوحة الملك كينجا</h2><form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px;"><select name="type"><option value="java">Java</option><option value="bedrock">Bedrock</option></select><input name="botName" placeholder="اسم البوت"><input name="address" placeholder="الآيبي:البورت" style="grid-column:span 2;"><button class="btn btn-start" style="grid-column:span 2;">إضافة</button></form><div>${botCards}</div><a href="/logout" style="color:red;">خروج</a></div><script>function ctl(id,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:a})}).then(()=>setTimeout(()=>location.reload(), 1000));}setInterval(()=>location.reload(), 30000);</script>`));
 });
 
 // المنطق الخلفي
@@ -191,12 +173,22 @@ app.post('/control', checkAuth, (req, res) => {
     if (action === 'start' && !b.connected) {
         b.connecting = true; saveData();
         if (b.type === 'java') {
+            // طريقة اتصالك الأصلية بالحرف الواحد
             b.client = mineflayer.createBot({ host: b.host, port: b.port, username: b.botName, auth: 'offline' });
-            b.client.on('spawn', () => { b.connected = true; b.connecting = false; b.pos = b.client.entity.position; startAntiAFK(b); saveData(); });
+            b.client.on('spawn', () => { 
+                b.connected = true; b.connecting = false; b.pos = b.client.entity.position; 
+                saveData(); 
+                startAntiAFK(b); 
+            });
             b.client.on('error', () => { b.connected = false; b.connecting = false; saveData(); });
         } else {
             b.client = bedrock.createClient({ host: b.host, port: b.port, username: b.botName, offline: true });
-            b.client.on('spawn', () => { b.connected = true; b.connecting = false; if(b.client.startGameData) b.pos = b.client.startGameData.player_position; startAntiAFK(b); saveData(); });
+            b.client.on('spawn', () => { 
+                b.connected = true; b.connecting = false; 
+                if(b.client.startGameData) b.pos = b.client.startGameData.player_position;
+                saveData(); 
+                startAntiAFK(b); 
+            });
             b.client.on('error', () => { b.connected = false; b.connecting = false; saveData(); });
         }
     } else if (action === 'stop' || action === 'delete') {
