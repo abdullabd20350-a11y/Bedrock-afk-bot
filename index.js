@@ -48,7 +48,38 @@ function checkAuth(req, res, next) {
 }
 
 // ==========================================
-// 2. واجهة المستخدم (HTML) 
+// 2. نظام الحركة العشوائية (Anti-AFK / Anti-Timeout)
+// ==========================================
+function startAntiAFK(bot) {
+    const afkLoop = () => {
+        if (!bot.connected) return;
+
+        if (bot.type === 'bedrock' && bot.client) {
+            bot.client.queue('animate', { action_id: 1, runtime_entity_id: 1 });
+        } else if (bot.type === 'java' && bot.client && bot.client.setControlState) {
+            // القفز لمنع الـ Timeout
+            bot.client.setControlState('jump', true);
+            setTimeout(() => { if (bot.connected) bot.client.setControlState('jump', false); }, 500);
+        }
+
+        // الحركة القادمة بين 15 و 25 ثانية (لكي لا يطرده السيرفر الذي يطرد بعد 30 ثانية)
+        const nextTime = Math.floor(Math.random() * (25000 - 15000 + 1)) + 15000;
+        bot.afkTimeout = setTimeout(afkLoop, nextTime);
+    };
+    
+    // أول حركة بعد 3 ثوانٍ فقط من الدخول لإثبات الوجود للسيرفر
+    bot.afkTimeout = setTimeout(afkLoop, 3000);
+}
+
+function stopAntiAFK(bot) {
+    if (bot.afkTimeout) {
+        clearTimeout(bot.afkTimeout);
+        bot.afkTimeout = null;
+    }
+}
+
+// ==========================================
+// 3. واجهة المستخدم (HTML) 
 // ==========================================
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
@@ -213,7 +244,7 @@ app.get('/', checkAuth, (req, res) => {
 });
 
 // ==========================================
-// 3. العمليات الخلفية الأساسية 
+// 4. العمليات الخلفية الأساسية 
 // ==========================================
 
 app.post('/auth-register', (req, res) => {
@@ -281,7 +312,7 @@ app.post('/control', checkAuth, (req, res) => {
 
     if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
-        saveData(); // حفظ حالة "جاري الانضمام" لتظهر في الواجهة
+        saveData(); 
         
         if (bot.type === 'bedrock') {
             bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: bot.botName, offline: true });
@@ -290,32 +321,35 @@ app.post('/control', checkAuth, (req, res) => {
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
                 saveData();
+                startAntiAFK(bot); // تفعيل الحركة بعد الدخول
             });
-            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; saveData(); });
-            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; saveData(); });
+            bot.client.on('error', () => { stopAntiAFK(bot); bot.connected = false; bot.connecting = false; saveData(); });
+            bot.client.on('close', () => { stopAntiAFK(bot); bot.connected = false; bot.connecting = false; saveData(); });
             
         } else {
-            // هنا تم وضع طريقة اتصالك حرفياً وبدون أي تغييرات إضافية
             bot.client = mineflayer.createBot({ 
                 host: bot.host, 
                 port: bot.port, 
                 username: bot.botName,
-                auth: 'offline' // مهم جداً للدخول لسيرفرات Aternos المكركة بدون حساب مايكروسوفت
+                auth: 'offline' 
             });
             
             bot.client.on('spawn', () => { 
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 bot.pos = bot.client.entity.position;
                 saveData();
+                startAntiAFK(bot); // تفعيل الحركة القوية لإنقاذ البوت من الطرد
             });
             
             bot.client.on('error', (err) => { 
-                console.log('Java Bot Error:', err); // سيطبع الخطأ في الـ Console لمعرفته إن تكرر
+                console.log('Java Bot Error:', err); 
+                stopAntiAFK(bot);
                 bot.connected = false; bot.connecting = false; 
                 saveData();
             });
             
             bot.client.on('end', () => { 
+                stopAntiAFK(bot);
                 bot.connected = false; bot.connecting = false; 
                 saveData();
             });
@@ -326,10 +360,12 @@ app.post('/control', checkAuth, (req, res) => {
             });
         }
     } else if (action === 'stop') {
+        stopAntiAFK(bot);
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         bot.connected = false; bot.connecting = false; bot.startTime = null;
         saveData();
     } else if (action === 'delete') {
+        stopAntiAFK(bot);
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         delete data.activeBots[id];
         saveData();
@@ -340,4 +376,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - 100% Original Java Auth!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Anti-Timeout Active!'));
