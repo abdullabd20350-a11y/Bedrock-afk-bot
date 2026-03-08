@@ -1,13 +1,14 @@
 {
-  "name": "kinga-bedrock-bot",
-  "version": "1.0.0",
-  "description": "Stable Bedrock AFK Bot by Kinga",
+  "name": "kinga-bedrock-panel",
+  "version": "2.0.0",
+  "description": "Multi-Bot Bedrock Manager",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "bedrock-protocol": "latest",
-    "express": "latest"
+    "express": "latest",
+    "express-session": "latest"
   }
 }
