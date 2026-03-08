@@ -6,9 +6,11 @@ const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// إعداد الجلسة مع تعطيل تحذير MemoryStore
 app.use(session({
-    secret: 'kinga-final-safe-key',
-    resave: false,
+    secret: 'kinga-ultra-safe-2026',
+    resave: true,
     saveUninitialized: true,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
@@ -37,8 +39,8 @@ const layout = (title, content, lang = 'ar') => `
         .status-online { background: #d4edda; color: #155724; }
         .status-offline { background: #f8d7da; color: #721c24; }
         @keyframes blink { 50% { opacity: 0.6; } }
-        .coords-box { display: flex; gap: 15px; background: #f9f9f9; padding: 10px; border-radius: 10px; font-family: monospace; }
-        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .coords-box { display: flex; gap: 15px; background: #f9f9f9; padding: 10px; border-radius: 10px; font-family: monospace; font-size: 0.9em; }
+        .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
         .btn-delete { background: #dc3545; color: white; }
@@ -48,18 +50,18 @@ const layout = (title, content, lang = 'ar') => `
 </head>
 <body>${content}</body></html>`;
 
-// --- مسارات الدخول والتسجيل ---
+// --- صفحات تسجيل الدخول والتسجيل ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
     <div class="auth-card">
-        <h2 style="color:#1a73e8; margin-bottom:25px;">Kinga Pro 🚀</h2>
+        <h2 style="color:#1a73e8;">Kinga Pro 🚀</h2>
         <form action="/auth-login" method="POST">
             <input name="username" placeholder="${isAr ? 'اسم المستخدم' : 'Username'}" required>
             <input name="password" type="password" placeholder="${isAr ? 'كلمة المرور' : 'Password'}" required>
             <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'دخول' : 'Login'}</button>
         </form>
-        <p style="margin-top:20px; font-size:0.9em;"><a href="/register?lang=${isAr?'ar':'en'}" style="text-decoration:none;">${isAr ? 'إنشاء حساب جديد' : 'Register'}</a></p>
+        <p style="margin-top:20px; font-size:0.85em;"><a href="/register?lang=${isAr?'ar':'en'}">${isAr ? 'إنشاء حساب جديد' : 'Register'}</a></p>
     </div>`, isAr ? 'ar' : 'en'));
 });
 
@@ -67,14 +69,14 @@ app.get('/register', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'تسجيل' : 'Register', `
     <div class="auth-card">
-        <h2 style="color:#1a73e8; margin-bottom:25px;">${isAr ? 'حساب جديد' : 'New Account'}</h2>
+        <h2 style="color:#1a73e8;">${isAr ? 'حساب جديد' : 'New Account'}</h2>
         <form action="/auth-register" method="POST">
             <input name="username" placeholder="${isAr ? 'اسم المستخدم' : 'Username'}" required>
             <input name="password" type="password" placeholder="${isAr ? 'كلمة المرور' : 'Password'}" required>
             <input name="confirm" type="password" placeholder="${isAr ? 'تأكيد كلمة المرور' : 'Confirm'}" required>
             <button class="btn btn-start" style="width:100%; background:#1a73e8; margin-top:15px;">${isAr ? 'إنشاء' : 'Register'}</button>
         </form>
-        <p style="margin-top:20px; font-size:0.9em;"><a href="/login?lang=${isAr?'ar':'en'}" style="text-decoration:none;">${isAr ? 'لديك حساب؟ دخول' : 'Login'}</a></p>
+        <p style="margin-top:20px; font-size:0.85em;"><a href="/login?lang=${isAr?'ar':'en'}">${isAr ? 'لديك حساب؟ دخول' : 'Login'}</a></p>
     </div>`, isAr ? 'ar' : 'en'));
 });
 
@@ -122,7 +124,7 @@ app.get('/', checkAuth, (req, res) => {
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h2>🚀 Kinga Live Manager</h2>
             <div style="display:flex; gap:15px; align-items:center;">
-                <a href="/set-lang?l=${isAr ? 'en' : 'ar'}" style="text-decoration:none; font-weight:bold;">${isAr ? 'English' : 'عربي'}</a>
+                <a href="/set-lang?l=${isAr ? 'en' : 'ar'}" style="text-decoration:none; font-weight:bold; color:#1a73e8;">${isAr ? 'English' : 'عربي'}</a>
                 <a href="/logout" style="color:red; text-decoration:none; font-weight:bold;">${isAr?'خروج':'Logout'}</a>
             </div>
         </div>
@@ -133,26 +135,22 @@ app.get('/', checkAuth, (req, res) => {
             <input name="port" placeholder="Port" style="grid-column:span 2;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
-        <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات</p>'}</div>
+        <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
     </div>
     <script>
         function ctl(n,a){ fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})}).then(()=>setTimeout(()=>location.reload(), 1200));}
         
-        // تحديث العداد المباشر مع التحقق من الحالة لمنع الاستمرار عند الإيقاف
         setInterval(() => {
             document.querySelectorAll('[id^="timer-"]').forEach(el => {
                 const start = el.getAttribute('data-start');
                 const card = el.closest('.bot-card');
                 const isOnline = card && (card.innerText.includes('Online') || card.innerText.includes('متصل'));
-
                 if (start && isOnline) {
                     const diff = Math.floor((Date.now() - parseInt(start)) / 1000);
                     const m = Math.floor(diff / 60);
                     const s = diff % 60;
                     el.innerText = m > 0 ? m + "m " + s + "s" : s + "s";
-                } else {
-                    el.innerText = "---";
-                }
+                } else { el.innerText = "---"; }
             });
         }, 1000);
 
@@ -160,11 +158,30 @@ app.get('/', checkAuth, (req, res) => {
             if (document.body.innerText.includes('Online') || document.body.innerText.includes('متصل') || document.body.innerText.includes('...')) {
                 location.reload();
             }
-        }, 15000);
+        }, 10000);
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// --- المنطق البرمجي (Back-end) ---
+// --- المنطق الخلفي المصلح ---
+app.post('/auth-register', (req, res) => {
+    const { username, password, confirm } = req.body;
+    if (password !== confirm || users.find(u => u.username === username)) {
+        return res.send("<script>alert('Error in Register'); window.location='/register';</script>");
+    }
+    users.push({ username, password });
+    res.redirect('/login');
+});
+
+app.post('/auth-login', (req, res) => {
+    const { username, password } = req.body;
+    const user = users.find(u => u.username === username && u.password === password);
+    if (user) {
+        req.session.user = username;
+        return res.redirect('/');
+    }
+    res.send("<script>alert('Invalid Login'); window.location='/login';</script>");
+});
+
 app.post('/control', checkAuth, (req, res) => {
     const { name, action } = req.body;
     const bot = activeBots[name];
@@ -176,7 +193,7 @@ app.post('/control', checkAuth, (req, res) => {
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
             });
-            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; bot.startTime = null; });
         } else {
             const [h, p] = bot.host.split(':');
             bot.client = mineflayer.createBot({ host: h, port: p || 25565, username: name });
@@ -184,12 +201,12 @@ app.post('/control', checkAuth, (req, res) => {
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 bot.pos = bot.client.entity.position;
             });
-            bot.client.on('death', () => bot.deathCount++);
             bot.client.on('end', () => { bot.connected = false; bot.connecting = false; bot.startTime = null; });
+            bot.client.on('death', () => bot.deathCount++);
         }
     } else if (action === 'stop') {
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        bot.connected = false; bot.connecting = false; bot.startTime = null; // تصفير الوقت عند الإيقاف
+        bot.connected = false; bot.connecting = false; bot.startTime = null;
     } else if (action === 'delete') {
         if (bot.client) bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit();
         delete activeBots[name];
@@ -203,20 +220,8 @@ app.post('/add', checkAuth, (req, res) => {
     res.redirect('/');
 });
 
-app.post('/auth-register', (req, res) => {
-    const { username, password, confirm } = req.body;
-    if (password !== confirm || users.find(u => u.username === username)) return res.send("Error");
-    users.push({ username, password });
-    res.redirect('/login');
-});
-
-app.post('/auth-login', (req, res) => {
-    const { username, password } = req.body;
-    const user = users.find(u => u.username === username && u.password === password);
-    if (user) { req.session.user = username; res.redirect('/'); } else res.send("Error");
-});
-
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`🚀 Kinga Live Dash on port ${PORT}`));
