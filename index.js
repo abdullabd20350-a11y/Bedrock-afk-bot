@@ -24,8 +24,8 @@ if (fs.existsSync(dbPath)) {
         for (let id in data.bots) {
             data.bots[id].connected = false;
             data.bots[id].connecting = false;
-            data.bots[id].shouldRun = false; // التحكم بالرغبة في التشغيل
-            data.bots[id].retryCount = 0;    // عداد المحاولات
+            data.bots[id].shouldRun = false; 
+            data.bots[id].retryCount = 0;    
         }
     } catch (e) { data = { bots: {} }; }
 }
@@ -45,7 +45,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال الذكي (الرسبون + 20 دقيقة + المحاولات)
+// 2. محرك الاتصال الذكي (إصلاح السرفايفل)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -61,12 +61,14 @@ function connectBot(id) {
         });
         const client = activeClients[id];
 
+        let tickCount = 0n;
+
         client.on('start_game', (pkt) => { b.runtimeId = pkt.runtime_entity_id; });
 
         client.on('spawn', () => {
             b.connected = true;
             b.connecting = false;
-            b.retryCount = 0; // تصفير المحاولات عند النجاح
+            b.retryCount = 0; 
             if (client.startGameData) b.pos = client.startGameData.player_position;
             saveDB();
 
@@ -75,32 +77,66 @@ function connectBot(id) {
                 client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
             });
 
-            // 1. حركة عشوائية كل دقيقة
+            // تحديث الإحداثيات الحقيقية من السيرفر
+            client.on('move_player', (pkt) => {
+                if (pkt.runtime_entity_id === b.runtimeId) {
+                    b.pos = pkt.position;
+                }
+            });
+
+            // محرك الحركة الفيزيائي المتطور (كل 20 ثانية)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
                 try {
-                    let p = { ...b.pos };
-                    if (Math.random() > 0.5) {
-                        p.y += 1.2; 
-                        client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: false, teleporter_id: 0 });
-                        setTimeout(() => { if(b.connected) { p.y -= 1.2; client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 }); }}, 500);
-                    } else {
-                        p.x += (Math.random() - 0.5) * 2;
-                        p.z += (Math.random() - 0.5) * 2;
-                        client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 });
-                    }
-                    b.pos = p; 
-                } catch (e) {}
-            }, 60000);
+                    tickCount++;
+                    
+                    // 1. التفات عشوائي لإثبات الوجود
+                    const randomYaw = Math.random() * 360;
+                    const randomPitch = (Math.random() * 40) - 20;
 
-            // 2. نظام التجديد كل 20 دقيقة (20 Min Cycle)
+                    client.queue('move_player', { 
+                        runtime_entity_id: b.runtimeId, 
+                        position: b.pos, 
+                        pitch: randomPitch, 
+                        yaw: randomYaw, 
+                        head_yaw: randomYaw, 
+                        mode: 0, 
+                        on_ground: true, 
+                        teleporter_id: 0,
+                        tick: tickCount
+                    });
+
+                    // 2. إرسال حزمة تفاعل (ضرب باليد)
+                    client.queue('animate', {
+                        action_id: 1, 
+                        runtime_entity_id: b.runtimeId
+                    });
+
+                    // 3. قفزة بسيطة مصححة فيزيائياً
+                    let p = { ...b.pos };
+                    p.y += 0.5; // قفزة خفيفة لا تسبب تعليق السيرفر
+                    client.queue('move_player', { 
+                        runtime_entity_id: b.runtimeId, position: p, pitch: randomPitch, yaw: randomYaw, head_yaw: randomYaw, mode: 0, on_ground: false, teleporter_id: 0, tick: tickCount 
+                    });
+
+                    setTimeout(() => {
+                        if (b.connected) {
+                            client.queue('move_player', { 
+                                runtime_entity_id: b.runtimeId, position: b.pos, pitch: randomPitch, yaw: randomYaw, head_yaw: randomYaw, mode: 0, on_ground: true, teleporter_id: 0, tick: tickCount 
+                            });
+                        }
+                    }, 500);
+
+                } catch (e) {}
+            }, 20000); // كل 20 ثانية
+
+            // نظام التجديد كل 20 دقيقة
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
-                console.log(`[${b.botName}] مرت 20 دقيقة، جاري الخروج والدخول السريع...`);
-                b.isRelogging = true; // علامة تميز هذا الخروج بأنه مبرمج
+                b.isRelogging = true; 
                 client.disconnect();
-            }, 20 * 60 * 1000); // 20 دقيقة
+            }, 20 * 60 * 1000); 
         });
 
         client.on('error', (err) => { handleDisconnect(id); });
@@ -111,12 +147,11 @@ function connectBot(id) {
     }
 }
 
-// دالة معالجة الفصل (الانهيار أو التجديد)
+// دالة معالجة الفصل والمحاولات
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
 
-    // تنظيف الذاكرة
     if (b.moveInterval) clearInterval(b.moveInterval);
     if (b.reloginTimer) clearTimeout(b.reloginTimer);
     if (activeClients[id]) delete activeClients[id];
@@ -125,30 +160,24 @@ function handleDisconnect(id) {
     b.connecting = false;
     saveDB();
 
-    // إذا ضغطت "إيقاف" يدوياً
     if (!b.shouldRun) return; 
 
-    // إذا كان خروجاً مبرمجاً لتجديد الـ 20 دقيقة
     if (b.isRelogging) {
         b.isRelogging = false;
-        setTimeout(() => connectBot(id), 5000); // انتظر 5 ثوانٍ وادخل
+        setTimeout(() => connectBot(id), 5000); 
         return;
     }
 
-    // نظام المحاولات (Crash Recovery)
     if (b.retryCount === 0) {
-        console.log(`[${b.botName}] فصل! المحاولة الأولى بعد 30 ثانية...`);
         b.retryCount = 1;
         setTimeout(() => connectBot(id), 30000);
     } 
     else if (b.retryCount === 1) {
-        console.log(`[${b.botName}] فشل مرة أخرى! المحاولة الثانية والأخيرة بعد دقيقة...`);
         b.retryCount = 2;
         setTimeout(() => connectBot(id), 60000);
     } 
     else {
-        console.log(`[${b.botName}] فشل لمرتين متتاليتين. تم إيقاف البوت نهائياً.`);
-        b.shouldRun = false; // يوقف المحاولات
+        b.shouldRun = false; 
         b.retryCount = 0;
         saveDB();
     }
