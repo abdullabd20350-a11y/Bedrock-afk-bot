@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// إعداد الجلسة وحل مشكلة تحذير MemoryStore
+// تحذير MemoryStore طبيعي جداً ولا يؤثر على عمل البوت، تركناه كما هو لأنه الأنسب والأخف لمشروعك
 app.use(session({
     secret: 'kinga-stable-safe-2026',
     resave: false,
@@ -163,7 +163,7 @@ app.get('/', checkAuth, (req, res) => {
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// --- المنطق الخلفي المطور ---
+// --- المنطق الخلفي ---
 
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
@@ -180,14 +180,12 @@ app.post('/auth-login', (req, res) => {
     res.send("<script>alert('❌ خطأ في اليوزر أو الباسورد'); window.location='/login';</script>");
 });
 
-// استقبال البوت المضاف وتقسيم الآيبي والبورت برمجياً
 app.post('/add', checkAuth, (req, res) => {
     const { type, address, botName } = req.body;
     if (activeBots[botName]) return res.send("<script>alert('⚠️ اسم البوت موجود مسبقاً'); window.location='/';</script>");
 
-    // الذكاء التلقائي: استخراج البورت والآيبي وتحديد الافتراضي إذا كان مفقوداً
     let host = address.trim();
-    let port = type === 'bedrock' ? 19132 : 25565; // البورت الافتراضي
+    let port = type === 'bedrock' ? 19132 : 25565;
 
     if (address.includes(':')) {
         const parts = address.split(':');
@@ -205,7 +203,6 @@ app.post('/control', checkAuth, (req, res) => {
     if (action === 'start' && !bot.connected) {
         bot.connecting = true;
         if (bot.type === 'bedrock') {
-            // نستخدم البيانات التي تم فكها وتجهيزها في دالة /add
             bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: name, offline: true });
             
             bot.client.on('spawn', () => { 
@@ -216,14 +213,22 @@ app.post('/control', checkAuth, (req, res) => {
             bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
             
         } else {
-            // الجافا الآن أسهل وبدون مشاكل، مع إضافة version: false
-            bot.client = mineflayer.createBot({ host: bot.host, port: bot.port, username: name, version: false });
+            // الإصلاح الجذري للجافا: مسح version: false وإضافة auth: 'offline'
+            bot.client = mineflayer.createBot({ 
+                host: bot.host, 
+                port: bot.port, 
+                username: name,
+                auth: 'offline' // مهم جداً للدخول لسيرفرات Aternos المكركة بدون حساب مايكروسوفت
+            });
             
             bot.client.on('spawn', () => { 
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 bot.pos = bot.client.entity.position;
             });
-            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; });
+            bot.client.on('error', (err) => { 
+                console.log('Java Bot Error:', err); // سيطبع الخطأ في الـ Console لمعرفته إن تكرر
+                bot.connected = false; bot.connecting = false; 
+            });
             bot.client.on('end', () => { bot.connected = false; bot.connecting = false; });
             bot.client.on('death', () => bot.deathCount++);
         }
@@ -240,4 +245,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000);
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running!'));
