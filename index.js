@@ -307,14 +307,15 @@ app.post('/control', checkAuth, (req, res) => {
         bot.connecting = true;
         bot.lastStatus = ''; 
         
+        // زيادة مهلة الانتظار إلى 90 ثانية لتناسب بطء سيرفرات Aternos
         bot.connectTimeout = setTimeout(() => {
             if (bot.connecting) {
                 bot.connecting = false; bot.connected = false;
-                bot.lastStatus = 'انتهى الوقت (Timeout) - السيرفر مغلق أو لا يستجيب';
+                bot.lastStatus = 'انتهى الوقت (Timeout) - استغرق السيرفر أكثر من 90 ثانية للرد';
                 if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
                 saveData();
             }
-        }, 45000);
+        }, 90000); 
 
         const clearTimer = () => { if(bot.connectTimeout) clearTimeout(bot.connectTimeout); };
 
@@ -332,14 +333,14 @@ app.post('/control', checkAuth, (req, res) => {
             
         } else {
             try {
-                // التعديل السحري لحل مشكلة السيرفرات المكركة (Offline) واكتشاف الإصدار
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
                     port: bot.port, 
                     username: name, 
                     auth: 'offline',
-                    version: false, // يجعل البوت يكتشف إصدار السيرفر ويتوافق معه
-                    checkTimeoutInterval: 60000 
+                    version: false,
+                    keepAlive: true, // إرسال نبضات مستمرة لمنع السيرفر من قطع الاتصال
+                    checkTimeoutInterval: 120000 // السماح لـ mineflayer بمهلة داخلية تصل لدقيقتين
                 });
                 
                 bot.client.on('spawn', () => { 
@@ -395,4 +396,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running with Error Tracker!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running with Extended Timeouts!'));
