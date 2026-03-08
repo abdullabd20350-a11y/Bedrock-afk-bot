@@ -7,7 +7,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// تحذير MemoryStore طبيعي جداً ولا يؤثر على عمل البوت، تركناه كما هو لأنه الأنسب والأخف لمشروعك
 app.use(session({
     secret: 'kinga-stable-safe-2026',
     resave: false,
@@ -23,7 +22,6 @@ function checkAuth(req, res, next) {
     next();
 }
 
-// واجهة التصميم الموحدة
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
 <head>
@@ -50,7 +48,6 @@ const layout = (title, content, lang = 'ar') => `
 </head>
 <body>${content}</body></html>`;
 
-// --- صفحات الدخول والتسجيل ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
@@ -80,7 +77,6 @@ app.get('/register', (req, res) => {
     </div>`, isAr ? 'ar' : 'en'));
 });
 
-// --- لوحة التحكم ---
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
     const isAr = lang === 'ar';
@@ -163,8 +159,6 @@ app.get('/', checkAuth, (req, res) => {
     </script>`, isAr ? 'ar' : 'en'));
 });
 
-// --- المنطق الخلفي ---
-
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
     if (password !== confirm) return res.send("<script>alert('❌ الباسورد غير متطابق'); window.location='/register';</script>");
@@ -213,22 +207,32 @@ app.post('/control', checkAuth, (req, res) => {
             bot.client.on('close', () => { bot.connected = false; bot.connecting = false; });
             
         } else {
-            // الإصلاح الجذري للجافا: مسح version: false وإضافة auth: 'offline'
+            // كود الجافا المطور للصبر على سيرفرات Aternos ومعرفة سبب الطرد
             bot.client = mineflayer.createBot({ 
                 host: bot.host, 
                 port: bot.port, 
                 username: name,
-                auth: 'offline' // مهم جداً للدخول لسيرفرات Aternos المكركة بدون حساب مايكروسوفت
+                auth: 'offline', 
+                version: false, // التعرف التلقائي على الإصدار
+                checkTimeoutInterval: 60000 // انتظار السيرفر لمدة دقيقة بدلاً من 30 ثانية لتجنب الطرد السريع
             });
             
             bot.client.on('spawn', () => { 
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 bot.pos = bot.client.entity.position;
             });
+            
+            // تسجيل سبب الطرد من السيرفر لمعرفة المشكلة الحقيقية
+            bot.client.on('kicked', (reason) => {
+                console.log(`[Java Bot Kicked] -> ${reason}`);
+                bot.connected = false; bot.connecting = false;
+            });
+
             bot.client.on('error', (err) => { 
-                console.log('Java Bot Error:', err); // سيطبع الخطأ في الـ Console لمعرفته إن تكرر
+                console.log(`[Java Bot Error] -> ${err.message}`);
                 bot.connected = false; bot.connecting = false; 
             });
+            
             bot.client.on('end', () => { bot.connected = false; bot.connecting = false; });
             bot.client.on('death', () => bot.deathCount++);
         }
