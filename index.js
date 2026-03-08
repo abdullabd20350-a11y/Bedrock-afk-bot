@@ -45,7 +45,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال (إنهاء حالة الشبح)
+// 2. محرك الاتصال (السرفايفل الصارم)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -61,11 +61,23 @@ function connectBot(id) {
         });
         const client = activeClients[id];
 
+        let tickCount = 0n;
+
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
             if (pkt.player_position) b.pos = pkt.player_position;
-            // طلب تحميل الخريطة لكي لا يقع في الفراغ
-            client.queue('request_chunk_radius', { chunk_radius: 2 });
+            // طلب تحميل الخريطة المحيطة لتجنب السقوط
+            client.queue('request_chunk_radius', { chunk_radius: 3 });
+        });
+
+        // التزامن مع سيرفر السرفايفل (إثبات الوجود)
+        client.on('tick_sync', (pkt) => {
+            if (b.connected) {
+                client.queue('tick_sync', {
+                    request_time: pkt.request_time,
+                    response_time: BigInt(Date.now())
+                });
+            }
         });
 
         client.on('spawn', () => {
@@ -74,12 +86,29 @@ function connectBot(id) {
             b.retryCount = 0; 
             saveDB();
 
-            // إخبار السيرفر بإنهاء شاشة التحميل
+            // إعلان انتهاء التحميل للسيرفر
             client.queue('set_local_player_as_initialized', {
                 runtime_entity_id: b.runtimeId
             });
 
-            // Anti-AFK آمن (تأرجح اليد كل 30 ثانية)
+            // محاكاة نبض اللعبة لإثبات أن اللاعب حقيقي (وليس شبحاً)
+            if (b.physicsInterval) clearInterval(b.physicsInterval);
+            b.physicsInterval = setInterval(() => {
+                if (!b.connected) return clearInterval(b.physicsInterval);
+                try {
+                    tickCount++;
+                    client.queue('player_auth_input', {
+                        pitch: 0, yaw: 0,
+                        position: b.pos, // إرسال نفس إحداثيات السيرفر (لا نتدخل فيها)
+                        move_vector: { x: 0, z: 0 }, head_yaw: 0, input_data: 0n,
+                        play_mode: 0, interaction_model: 0,
+                        gaze_direction: { x: 0, y: 0, z: 1 },
+                        tick: tickCount, delta: { x: 0, y: 0, z: 0 }
+                    });
+                } catch (e) {}
+            }, 50);
+
+            // تأرجح اليد لمنع الـ AFK (أضمن طريقة)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
@@ -91,7 +120,7 @@ function connectBot(id) {
                 } catch (e) {}
             }, 30000);
 
-            // تجديد الدخول كل 20 دقيقة لتفادي كشف السيرفر
+            // تجديد الاتصال كل 20 دقيقة
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
                 b.isRelogging = true; 
@@ -99,23 +128,20 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        // 🔥 الحل الجذري والنهائي لحالة الشبح (Y: 32769) 🔥
+        // 🔥 معالجة النزول للأرض وإصلاح Y:32769
         client.on('respawn', (pkt) => {
-            // عندما يرسل السيرفر State 1 (أنا جاهز لتنزيلك للأرض)
-            if (pkt.state === 1) {
-                b.pos = pkt.position; // تحديث الإحداثيات لموقع الأرض الحقيقي
+            if (pkt.state === 1 || pkt.state === 0) {
+                b.pos = pkt.position;
                 saveDB();
-                
-                // البوت يرد: State 2 (أنا جاهز، قم بتأكيد وجودي المادي)
                 client.queue('respawn', {
                     runtime_entity_id: b.runtimeId,
-                    state: 2, 
+                    state: 2, // أنا جاهز وعلى الأرض
                     position: pkt.position
                 });
             }
         });
 
-        // التقاط الإحداثيات الحقيقية عندما يرسل السيرفر البوت للأرض
+        // السيرفر هو من يحركنا (الجاذبية، الدفع، الضرب)
         client.on('move_player', (pkt) => {
             if (pkt.runtime_entity_id === b.runtimeId) {
                 b.pos = pkt.position;
@@ -131,11 +157,11 @@ function connectBot(id) {
     }
 }
 
-// دالة معالجة الفصل 
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
 
+    if (b.physicsInterval) clearInterval(b.physicsInterval);
     if (b.moveInterval) clearInterval(b.moveInterval);
     if (b.reloginTimer) clearTimeout(b.reloginTimer);
     if (activeClients[id]) delete activeClients[id];
@@ -227,7 +253,7 @@ app.get('/', (req, res) => {
             <button class="btn btn-start">إضافة بوت</button>
         </form>
         
-        <button class="btn btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة</button>
+        <button class="btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة</button>
         
         <div id="botList">${botList || '<p style="color: #999;">لا توجد بوتات مضافة حالياً</p>'}</div>
     `));
