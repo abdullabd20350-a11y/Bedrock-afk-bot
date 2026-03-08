@@ -37,7 +37,7 @@ function saveData() {
             host: b.host, port: b.port, type: b.type, owner: b.owner,
             connected: b.connected, connecting: b.connecting,
             pos: b.pos, deathCount: b.deathCount, startTime: b.startTime,
-            lastStatus: b.lastStatus // حفظ آخر رسالة خطأ
+            lastStatus: b.lastStatus 
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(cleanData, null, 2));
@@ -62,11 +62,9 @@ function startAntiAFK(bot) {
             setTimeout(() => { if (bot.connected) bot.client.setControlState('jump', false); }, 500);
         }
 
-        // الحركة القادمة بين دقيقتين و 3 دقائق
         const nextTime = Math.floor(Math.random() * (180000 - 120000 + 1)) + 120000;
         bot.afkTimeout = setTimeout(afkLoop, nextTime);
     };
-    // أول حركة بعد 5 ثوانٍ فقط لتجنب الطرد السريع فور الدخول
     bot.afkTimeout = setTimeout(afkLoop, 5000);
 }
 
@@ -235,7 +233,6 @@ app.get('/', checkAuth, (req, res) => {
             });
         }, 1000);
 
-        // تحديث أسرع للصفحة إذا كان هناك بوت قيد الانضمام لكي لا يعلق
         setInterval(() => {
             if (document.body.innerText.includes('جاري الانضمام...')) {
                 location.reload();
@@ -308,7 +305,7 @@ app.post('/control', checkAuth, (req, res) => {
     
     if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
-        bot.lastStatus = ''; // مسح الأخطاء القديمة عند بدء محاولة جديدة
+        bot.lastStatus = ''; 
         
         bot.connectTimeout = setTimeout(() => {
             if (bot.connecting) {
@@ -335,12 +332,14 @@ app.post('/control', checkAuth, (req, res) => {
             
         } else {
             try {
-                // الكود المبسط الذي كان يعمل بنجاح سابقاً للجافا
+                // التعديل السحري لحل مشكلة السيرفرات المكركة (Offline) واكتشاف الإصدار
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
                     port: bot.port, 
                     username: name, 
-                    auth: 'offline'
+                    auth: 'offline',
+                    version: false, // يجعل البوت يكتشف إصدار السيرفر ويتوافق معه
+                    checkTimeoutInterval: 60000 
                 });
                 
                 bot.client.on('spawn', () => { 
@@ -353,7 +352,6 @@ app.post('/control', checkAuth, (req, res) => {
                 bot.client.on('kicked', (reason) => {
                     clearTimer(); stopAntiAFK(bot); 
                     bot.connected = false; bot.connecting = false;
-                    // تحويل رسالة الطرد إلى نص مفهوم
                     bot.lastStatus = typeof reason === 'string' ? reason : JSON.stringify(reason);
                     saveData();
                 });
