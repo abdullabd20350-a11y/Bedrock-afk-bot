@@ -30,16 +30,12 @@ if (fs.existsSync(dbPath)) {
 }
 
 function saveData() {
-    let cleanData = { users: data.users, activeBots: {} };
-    for (let id in data.activeBots) {
-        let b = data.activeBots[id];
-        cleanData.activeBots[id] = {
-            id: b.id, host: b.host, port: b.port, type: b.type, owner: b.owner, botName: b.botName,
-            connected: b.connected, connecting: b.connecting,
-            pos: b.pos, deathCount: b.deathCount, startTime: b.startTime
-        };
-    }
-    fs.writeFileSync(dbPath, JSON.stringify(cleanData, null, 2));
+    const dataToSave = JSON.parse(JSON.stringify(data));
+    Object.keys(dataToSave.activeBots).forEach(name => {
+        delete dataToSave.activeBots[name].client;
+        delete dataToSave.activeBots[name].connectTimeout; // لا نحفظ المؤقت في الملف
+    });
+    fs.writeFileSync(dbPath, JSON.stringify(dataToSave, null, 2));
 }
 
 function checkAuth(req, res, next) {
@@ -69,15 +65,14 @@ const layout = (title, content, lang = 'ar') => `
         .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-start { background: #28a745; color: white; }
         .btn-stop { background: #ffc107; color: #212529; }
-        .btn-edit { background: #17a2b8; color: white; }
         .btn-delete { background: #dc3545; color: white; }
         .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        .edit-panel { display: none; background: #e9ecef; padding: 15px; border-radius: 10px; margin-top: 15px; }
     </style>
 </head>
 <body>${content}</body></html>`;
 
+// --- مسارات الدخول والتسجيل ---
 app.get('/login', (req, res) => {
     const isAr = (req.query.lang || 'ar') === 'ar';
     res.send(layout(isAr ? 'دخول' : 'Login', `
@@ -107,24 +102,23 @@ app.get('/register', (req, res) => {
     </div>`, isAr ? 'ar' : 'en'));
 });
 
+// --- لوحة التحكم ---
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
     const isAr = lang === 'ar';
-    let myBots = Object.keys(data.activeBots).filter(id => data.activeBots[id].owner === req.session.user);
+    let myBots = Object.keys(data.activeBots).filter(n => data.activeBots[n].owner === req.session.user);
     
-    let botCards = myBots.map(id => {
-        const b = data.activeBots[id];
+    let botCards = myBots.map(name => {
+        const b = data.activeBots[name];
         let statusClass = b.connecting ? 'status-connecting' : (b.connected ? 'status-online' : 'status-offline');
         let statusText = b.connecting ? (isAr ? 'جاري الانضمام...' : 'Connecting...') : (b.connected ? (isAr ? 'متصل' : 'Online') : (isAr ? 'متوقف' : 'Stopped'));
-        let isBusy = b.connected || b.connecting;
 
         return `
         <div class="bot-card" style="border-${isAr?'right':'left'}: 6px solid ${b.connected?'#28a745':(b.connecting?'#ffc107':'#dc3545')};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h3 style="margin:0;">🤖 ${b.botName} <small>(${b.type})</small></h3>
+                <h3 style="margin:0;">🤖 ${name} <small>(${b.type})</small></h3>
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
-            
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                     <strong>📍 ${isAr?'الإحداثيات':'Coordinates'}:</strong>
@@ -135,26 +129,14 @@ app.get('/', checkAuth, (req, res) => {
                     </div>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                    <span>⏱️ ${isAr?'مدة الاتصال':'Uptime'}: <b id="timer-${id}" data-start="${b.startTime || ''}" style="color:#1a73e8;">---</b></span>
+                    <span>⏱️ ${isAr?'مدة الاتصال':'Uptime'}: <b id="timer-${name}" data-start="${b.startTime || ''}" style="color:#1a73e8;">---</b></span>
                     <span>💀 ${isAr?'الوفيات':'Deaths'}: <b>${b.deathCount}</b></span>
                 </div>
             </div>
-
-            <div id="edit-${id}" class="edit-panel">
-                <form action="/edit" method="POST" style="display:flex; gap:10px; margin:0; align-items:center;">
-                    <input type="hidden" name="id" value="${id}">
-                    <input name="botName" value="${b.botName}" placeholder="${isAr?'الاسم':'Name'}" style="margin:0; width:25%;" required>
-                    <select name="type" style="margin:0; width:20%;"><option value="bedrock" ${b.type==='bedrock'?'selected':''}>Bedrock</option><option value="java" ${b.type==='java'?'selected':''}>Java</option></select>
-                    <input name="address" value="${b.host}:${b.port}" style="margin:0; width:35%;" required>
-                    <button class="btn btn-start" style="width:20%; padding:10px;">${isAr?'حفظ':'Save'}</button>
-                </form>
-            </div>
-
             <div style="margin-top:15px; display:flex; gap:10px;">
-                <button onclick="ctl('${id}','start')" class="btn btn-start" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
-                <button onclick="ctl('${id}','stop')" class="btn btn-stop" style="flex:1;" ${!isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
-                <button onclick="toggleEdit('${id}')" class="btn btn-edit" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تعديل':'Edit'}</button>
-                <button onclick="ctl('${id}','delete')" class="btn btn-delete" style="flex:1;">${isAr?'حذف':'Delete'}</button>
+                <button onclick="ctl('${name}','start')" class="btn btn-start" style="flex:1;" ${b.connected || b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
+                <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!b.connected && !b.connecting ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
+                <button onclick="ctl('${name}','delete')" class="btn btn-delete" style="flex:1;">${isAr?'حذف':'Delete'}</button>
             </div>
         </div>`;
     }).join('');
@@ -179,14 +161,9 @@ app.get('/', checkAuth, (req, res) => {
         <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
     </div>
     <script>
-        function toggleEdit(id) {
-            const el = document.getElementById('edit-' + id);
-            el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
-        }
-
-        function ctl(id,a){ 
-            if(a === 'delete' && !confirm('${isAr?'هل أنت متأكد من الحذف؟':'Are you sure?'}')) return;
-            fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,action:a})})
+        // إظهار الاستجابة الفورية عند الضغط لمنع النقر المزدوج
+        function ctl(n,a){ 
+            fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})})
             .then(()=>setTimeout(()=>location.reload(), 800));
         }
         
@@ -213,7 +190,7 @@ app.get('/', checkAuth, (req, res) => {
 });
 
 // ==========================================
-// 3. العمليات الخلفية الأساسية (الإضافة، التعديل، التحكم)
+// 3. العمليات الخلفية الأساسية
 // ==========================================
 
 app.post('/auth-register', (req, res) => {
@@ -235,7 +212,7 @@ app.post('/auth-login', (req, res) => {
 
 app.post('/add', checkAuth, (req, res) => {
     const { type, address, botName } = req.body;
-    const id = Date.now().toString(); // آي دي فريد لكل بوت
+    if (data.activeBots[botName]) return res.send("<script>alert('⚠️ اسم البوت موجود مسبقاً'); window.location='/';</script>");
 
     let host = address.trim();
     let port = type === 'bedrock' ? 19132 : 25565;
@@ -246,56 +223,34 @@ app.post('/add', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    data.activeBots[id] = { id, botName, host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
-    saveData();
-    res.redirect('/');
-});
-
-app.post('/edit', checkAuth, (req, res) => {
-    const { id, botName, type, address } = req.body;
-    const bot = data.activeBots[id];
-    
-    if (!bot || bot.connected || bot.connecting) return res.redirect('/');
-
-    let host = address.trim();
-    let port = type === 'bedrock' ? 19132 : 25565;
-
-    if (address.includes(':')) {
-        const parts = address.split(':');
-        host = parts[0].trim();
-        port = parseInt(parts[1].trim());
-    }
-
-    bot.botName = botName;
-    bot.type = type;
-    bot.host = host;
-    bot.port = port;
+    data.activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
     saveData();
     res.redirect('/');
 });
 
 app.post('/control', checkAuth, (req, res) => {
-    const { id, action } = req.body;
-    const bot = data.activeBots[id];
-    if(!bot) return res.sendStatus(404);
+    const { name, action } = req.body;
+    const bot = data.activeBots[name];
     
+    // حل المشكلة: التأكد من أننا لا نبدأ اتصالاً إذا كان هناك اتصال قيد المعالجة (منع النقرة المزدوجة)
     if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
         
+        // حل التعليق: مؤقت 45 ثانية، إذا لم يدخل السيرفر سيلغي الاتصال ويعود "متوقف"
         bot.connectTimeout = setTimeout(() => {
             if (bot.connecting) {
-                console.log(`[System] Timeout! ${bot.botName} could not connect.`);
+                console.log(`[System] Timeout! ${name} could not connect.`);
                 bot.connecting = false;
                 bot.connected = false;
                 if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-                saveData();
             }
         }, 45000);
 
+        // دالة تنظيف المؤقت إذا نجح الاتصال أو فشل بسرعة
         const clearTimer = () => { if(bot.connectTimeout) clearTimeout(bot.connectTimeout); };
 
         if (bot.type === 'bedrock') {
-            bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: bot.botName, offline: true });
+            bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: name, offline: true });
             
             bot.client.on('spawn', () => { 
                 clearTimer();
@@ -307,11 +262,10 @@ app.post('/control', checkAuth, (req, res) => {
             
         } else {
             try {
-                // رجعنا للاتصال القديم الذي كان ناجحاً معك تماماً
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
                     port: bot.port, 
-                    username: bot.botName,
+                    username: name,
                     auth: 'offline', 
                     version: false
                 });
@@ -340,14 +294,13 @@ app.post('/control', checkAuth, (req, res) => {
             }
         }
     } else if (action === 'stop') {
-        if(bot.connectTimeout) clearTimeout(bot.connectTimeout); 
+        if(bot.connectTimeout) clearTimeout(bot.connectTimeout); // إلغاء المؤقت عند الضغط على زر التوقف
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         bot.connected = false; bot.connecting = false; bot.startTime = null;
-        saveData();
     } else if (action === 'delete') {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout);
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        delete data.activeBots[id]; // يعتمد على الـ id لضمان الحذف الدقيق
+        delete data.activeBots[name];
         saveData();
     }
     res.sendStatus(200);
@@ -356,4 +309,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Classic Java Auth!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Anti-Hang Active!'));
