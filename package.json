@@ -1,13 +1,13 @@
 {
   "name": "kinga-bedrock-bot",
   "version": "1.0.0",
-  "description": "Simple Bedrock Bot for Kinga",
+  "description": "Stable Bedrock Bot for Kinga",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "bedrock-protocol": "^1.25.0",
-    "express": "^4.18.2"
+    "bedrock-protocol": "latest",
+    "express": "latest"
   }
 }
