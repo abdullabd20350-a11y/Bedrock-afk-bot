@@ -8,16 +8,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(session({
-    secret: 'kinga-bedrock-only-2026',
+    secret: 'kinga-bedrock-master-2026',
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
 // ==========================================
-// 1. نظام الحماية وإدارة البيانات
+// 1. إدارة البيانات والحماية
 // ==========================================
-process.on('uncaughtException', (err) => { console.log('[Critical-Error]:', err.message); });
+process.on('uncaughtException', (err) => { console.log('[Critical-System-Error]:', err.message); });
 
 const dbPath = './database.json';
 let data = { users: [], activeBots: {} };
@@ -47,7 +47,7 @@ function checkAuth(req, res, next) {
 }
 
 // ==========================================
-// 2. محرك النشاط (مشي وقفز فيزيائي)
+// 2. محرك النشاط المتطور (Anti-AFK)
 // ==========================================
 function runActivity(id) {
     const b = data.activeBots[id];
@@ -56,10 +56,9 @@ function runActivity(id) {
 
     try {
         let p = { ...b.pos };
-        const isJump = Math.random() > 0.5;
+        const moveType = Math.random() > 0.5 ? 'jump' : 'walk';
 
-        if (isJump) {
-            // القفز: رفع الإحداثي Y ثم خفضه
+        if (moveType === 'jump') {
             p.y += 1.2;
             client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: false, teleporter_id: 0 });
             setTimeout(() => {
@@ -69,18 +68,17 @@ function runActivity(id) {
                 }
             }, 500);
         } else {
-            // المشي: تغيير بسيط في X و Z
-            p.x += (Math.random() - 0.5) * 2;
-            p.z += (Math.random() - 0.5) * 2;
+            p.x += (Math.random() - 0.5) * 1.5;
+            p.z += (Math.random() - 0.5) * 1.5;
             client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 });
         }
         b.pos = p;
         saveData();
-    } catch (e) { console.log("Movement error"); }
+    } catch (e) { console.log("Movement Packet Error"); }
 }
 
 // ==========================================
-// 3. واجهة المستخدم (التحكم الكامل)
+// 3. واجهة المستخدم (The Dashboard)
 // ==========================================
 const layout = (title, content) => `
 <html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -88,19 +86,19 @@ const layout = (title, content) => `
 <style>
     body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
     .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); max-width: 800px; margin: auto; }
-    .bot-card { background: #fff; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid #eee; position: relative; border-right: 6px solid #dc3545; }
+    .bot-card { background: #fff; padding: 20px; border-radius: 15px; margin-bottom: 15px; border: 1px solid #eee; position: relative; border-right: 6px solid #dc3545; transition: 0.3s; }
     .bot-card.online { border-right-color: #28a745; }
     .status { padding: 6px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; }
     .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
     .btn-start { background: #28a745; color: white; }
     .btn-stop { background: #ffc107; color: #212529; }
     .btn-del { background: #dc3545; color: white; }
-    input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
+    input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; }
     .xyz-box { font-family: monospace; background: #f8f9fa; padding: 12px; border-radius: 10px; margin: 10px 0; display: flex; justify-content: space-around; border: 1px solid #eee; }
     .uptime { color: #1a73e8; font-weight: bold; }
 </style></head><body>${content}</body></html>`;
 
-app.get('/login', (req, res) => res.send(layout('دخول', `<div class="card" style="max-width:380px; text-align:center;"><h2>دخول كينجا 👑</h2><form action="/auth-login" method="POST"><input name="username" placeholder="اليوزر" required><input name="password" type="password" placeholder="الباسورد" required><button class="btn btn-start" style="width:100%">دخول</button></form><p><a href="/register">حساب جديد</a></p></div>`)));
+app.get('/login', (req, res) => res.send(layout('دخول', `<div class="card" style="max-width:380px; text-align:center;"><h2>دخول الملك كينجا 👑</h2><form action="/auth-login" method="POST"><input name="username" placeholder="اسم المستخدم" required><input name="password" type="password" placeholder="كلمة المرور" required><button class="btn btn-start" style="width:100%">دخول</button></form><p><a href="/register">حساب جديد</a></p></div>`)));
 app.get('/register', (req, res) => res.send(layout('تسجيل', `<div class="card" style="max-width:380px; text-align:center;"><h2>إنشاء حساب</h2><form action="/auth-register" method="POST"><input name="username" placeholder="اليوزر" required><input name="password" type="password" placeholder="الباسورد" required><input name="confirm" type="password" placeholder="تأكيد" required><button class="btn btn-start" style="width:100%">إنشاء</button></form></div>`)));
 
 app.get('/', checkAuth, (req, res) => {
@@ -125,11 +123,11 @@ app.get('/', checkAuth, (req, res) => {
             </div>
         </div>`;
     }).join('');
-    res.send(layout('الرئيسية', `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><h2>🚀 لوحة كينجا (بيدروك فقط)</h2><a href="/logout" style="color:red; text-decoration:none; font-weight:bold;">خروج</a></div><form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr; gap:10px; margin:20px 0; background:#f4f4f4; padding:15px; border-radius:15px;"><input name="botName" placeholder="اسم البوت" required><input name="address" placeholder="الآيبي:البورت (مثال: kinga.aternos.me:12345)" required><button class="btn btn-start">إضافة بوت جديد</button></form>${cards || '<p style="text-align:center;">لا توجد بوتات نشطة</p>'}</div><script>function ctl(id,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:a})}).then(()=>setTimeout(()=>location.reload(), 1500));}setInterval(()=>{document.querySelectorAll('[id^="timer-"]').forEach(el=>{const s=el.getAttribute('data-start');if(s){const d=Math.floor((Date.now()-parseInt(s))/1000);const m=Math.floor(d/60);const sc=d%60;el.innerText=m+"m "+sc+"s";}else el.innerText="---";});},1000);setInterval(()=>{if(!document.body.innerText.includes('جاري الانضمام')) location.reload();}, 25000);</script>`));
+    res.send(layout('الرئيسية', `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><h2>🚀 لوحة كينجا برو</h2><a href="/logout" style="color:red; text-decoration:none; font-weight:bold;">خروج</a></div><form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0; background:#f4f4f4; padding:15px; border-radius:15px;"><input name="botName" placeholder="اسم البوت" required><input name="address" placeholder="الآيبي:البورت (مثال: example.aternos.me:12345)" required><button class="btn btn-start">إضافة بوت</button></form><div>${cards || '<p style="text-align:center;">لا توجد بوتات</p>'}</div></div><script>function ctl(id,a){fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:a})}).then(()=>setTimeout(()=>location.reload(), 1500));}setInterval(()=>{document.querySelectorAll('[id^="timer-"]').forEach(el=>{const s=el.getAttribute('data-start');if(s){const d=Math.floor((Date.now()-parseInt(s))/1000);const m=Math.floor(d/60);const sc=d%60;el.innerText=m+"m "+sc+"s";}else el.innerText="---";});},1000);setInterval(()=>{if(!document.body.innerText.includes('جاري الانضمام')) location.reload();}, 25000);</script>`));
 });
 
 // ==========================================
-// 4. منطق التحكم (Bedrock Engine)
+// 4. العمليات الخلفية (Bedrock Engine)
 // ==========================================
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
@@ -160,24 +158,38 @@ app.post('/control', checkAuth, (req, res) => {
     if (action === 'start' && !b.connected) {
         b.connecting = true; saveData();
         try {
-            botInstances[id] = bedrock.createClient({ host: b.host, port: b.port, username: b.botName, offline: true, version: '1.20.0' });
+            // استخدام نسخة تلقائية لضمان التوافق مع السيرفر
+            botInstances[id] = bedrock.createClient({ 
+                host: b.host, 
+                port: b.port, 
+                username: b.botName, 
+                offline: true,
+                connectTimeout: 30000 
+            });
             
+            // التقاط المعرف فور بدء اللعبة
             botInstances[id].on('start_game', (pkt) => { b.runtimeId = pkt.runtime_entity_id; });
             
             botInstances[id].on('spawn', () => { 
-                b.connected = true; b.connecting = false; b.startTime = Date.now();
-                if(botInstances[id].startGameData) b.pos = botInstances[id].startGameData.player_position;
-                saveData();
-                if (b.itv) clearInterval(b.itv);
-                b.itv = setInterval(() => runActivity(id), 120000);
+                // انتظار 5 ثوانٍ بعد الـ Spawn لضمان استقرار السيرفر
+                setTimeout(() => {
+                    b.connected = true; b.connecting = false; b.startTime = Date.now();
+                    if(botInstances[id].startGameData) b.pos = botInstances[id].startGameData.player_position;
+                    saveData();
+                    if (b.itv) clearInterval(b.itv);
+                    b.itv = setInterval(() => runActivity(id), 120000);
+                }, 5000);
             });
 
             botInstances[id].on('error', (err) => { 
-                console.log(`[Bedrock Error ${b.botName}]:`, err.message); 
+                console.log(`[Bedrock Log]: ${b.botName} failed. Reason: ${err.message}`); 
                 b.connected = false; b.connecting = false; saveData(); 
             });
 
-            botInstances[id].on('close', () => { b.connected = false; b.connecting = false; saveData(); });
+            botInstances[id].on('close', () => { 
+                b.connected = false; b.connecting = false; saveData(); 
+                if (b.itv) clearInterval(b.itv);
+            });
 
         } catch (e) { b.connecting = false; saveData(); }
         
