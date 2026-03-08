@@ -48,7 +48,7 @@ function checkAuth(req, res, next) {
 }
 
 // ==========================================
-// 2. واجهة المستخدم (HTML) مع التعديل
+// 2. واجهة المستخدم (HTML)
 // ==========================================
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
@@ -169,7 +169,7 @@ app.get('/', checkAuth, (req, res) => {
             </div>
         </div>
         
-        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0;">
+        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0; background:#f9f9f9; padding:15px; border-radius:15px;">
             <select name="type" id="tp"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
             <input name="botName" placeholder="${isAr?'اسم البوت':'Bot Name'}" required>
             <input name="address" placeholder="${isAr?'الآيبي (مثال: example.aternos.me:12345)':'IP:Port (e.g. server.com:25565)'}" required style="grid-column:span 2;">
@@ -205,15 +205,15 @@ app.get('/', checkAuth, (req, res) => {
         }, 1000);
 
         setInterval(() => {
-            if (document.body.innerText.includes('Online') || document.body.innerText.includes('متصل') || document.body.innerText.includes('...')) {
+            if (document.body.innerText.includes('جاري الانضمام...')) {
                 location.reload();
             }
-        }, 10000);
+        }, 3000);
     </script>`, isAr ? 'ar' : 'en'));
 });
 
 // ==========================================
-// 3. العمليات الخلفية الأساسية 
+// 4. العمليات الخلفية الأساسية 
 // ==========================================
 
 app.post('/auth-register', (req, res) => {
@@ -279,60 +279,73 @@ app.post('/control', checkAuth, (req, res) => {
     const bot = data.activeBots[id];
     if(!bot) return res.sendStatus(404);
 
-    if (action === 'start' && !bot.connected) {
+    if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
         
+        bot.connectTimeout = setTimeout(() => {
+            if (bot.connecting) {
+                bot.connecting = false;
+                bot.connected = false;
+                if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
+                saveData();
+            }
+        }, 60000); // 60 ثانية لحماية الموقع من التعليق
+
+        const clearTimer = () => { if(bot.connectTimeout) clearTimeout(bot.connectTimeout); };
+
         if (bot.type === 'bedrock') {
             bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: bot.botName, offline: true });
             
             bot.client.on('spawn', () => { 
+                clearTimer();
                 bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
                 saveData();
             });
-            bot.client.on('error', () => { bot.connected = false; bot.connecting = false; saveData(); });
-            bot.client.on('close', () => { bot.connected = false; bot.connecting = false; saveData(); });
+            bot.client.on('error', () => { clearTimer(); bot.connected = false; bot.connecting = false; saveData(); });
+            bot.client.on('close', () => { clearTimer(); bot.connected = false; bot.connecting = false; saveData(); });
             
         } else {
             try {
-                // تبسيط إعدادات الجافا قدر الإمكان
+                // الكود الأصلي والمضمون 100% الخاص بك لنجاح اتصال الجافا
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
-                    port: parseInt(bot.port), // التأكد من أن البورت رقم صحيح 
+                    port: parseInt(bot.port), 
                     username: bot.botName,
-                    auth: 'offline' // إجبار وضع الأوفلاين
+                    auth: 'offline'
                 });
                 
                 bot.client.on('spawn', () => { 
+                    clearTimer();
                     bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                     bot.pos = bot.client.entity.position;
                     saveData();
                 });
                 
                 bot.client.on('error', (err) => { 
-                    // تجاهل خطأ ECONNRESET الذي يظهر أحياناً ولكنه لا يعني بالضرورة فشل الاتصال النهائي
-                    if (err.code === 'ECONNRESET') {
-                         console.log('Ignored ECONNRESET');
-                    } else {
-                         console.log('Java Bot Error:', err); 
-                         bot.connected = false; bot.connecting = false; 
-                         saveData();
-                    }
+                    // نتجاهل خطأ ECONNRESET حتى لا ينطفئ العداد إذا كان البوت لا يزال داخل السيرفر
+                    if (err.code === 'ECONNRESET' && bot.connected) return;
+                    
+                    clearTimer();
+                    bot.connected = false; bot.connecting = false; 
+                    saveData();
                 });
                 
-                bot.client.on('end', () => { bot.connected = false; bot.connecting = false; saveData(); });
+                bot.client.on('end', () => { clearTimer(); bot.connected = false; bot.connecting = false; saveData(); });
                 bot.client.on('death', () => bot.deathCount++);
             } catch (err) {
-                 console.log("Java setup error:", err);
+                 clearTimer();
                  bot.connected = false; bot.connecting = false;
                  saveData();
             }
         }
     } else if (action === 'stop') {
+        if(bot.connectTimeout) clearTimeout(bot.connectTimeout); 
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         bot.connected = false; bot.connecting = false; bot.startTime = null;
         saveData();
     } else if (action === 'delete') {
+        if(bot.connectTimeout) clearTimeout(bot.connectTimeout);
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
         delete data.activeBots[id];
         saveData();
