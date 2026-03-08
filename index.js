@@ -4,7 +4,6 @@ const session = require('express-session');
 const fs = require('fs');
 const app = express();
 
-// 🔥 سطر الحماية لمنع انهيار الموقع وضعناه هنا 🔥
 process.on('uncaughtException', (err) => { console.log('[System Safe Guard]:', err.message); });
 
 app.use(express.json());
@@ -15,9 +14,6 @@ app.use(session({
     saveUninitialized: true
 }));
 
-// ==========================================
-// 1. إدارة البيانات
-// ==========================================
 const dbPath = './database.json';
 let data = { bots: {} };
 
@@ -49,9 +45,6 @@ function saveDB() {
 
 let activeClients = {}; 
 
-// ==========================================
-// 2. محرك الاتصال (مع رادار الشات)
-// ==========================================
 function connectBot(id) {
     const b = data.bots[id];
     if (!b || !b.shouldRun) return;
@@ -68,14 +61,16 @@ function connectBot(id) {
         const client = activeClients[id];
 
         let tickCount = 0n;
+        let isSpawned = false;
 
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
-            if (pkt.player_position) b.pos = pkt.player_position;
+            if (pkt.player_position) {
+                b.pos = pkt.player_position;
+            }
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
-        // 🔥 رادار الشات (التقاط رابط التحقق) 🔥
         client.on('text', (packet) => {
             const msg = packet.message;
             if (msg && msg.includes('falixnodes.net/verify')) {
@@ -96,25 +91,38 @@ function connectBot(id) {
             b.connected = true;
             b.connecting = false;
             b.retryCount = 0; 
+            isSpawned = true;
             saveDB();
 
             client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
 
+            // محرك الفيزياء المتطور (إرسال حزم التفاعل باستمرار)
             if (b.physicsInterval) clearInterval(b.physicsInterval);
             b.physicsInterval = setInterval(() => {
-                if (!b.connected) return clearInterval(b.physicsInterval);
+                if (!b.connected || !isSpawned) return clearInterval(b.physicsInterval);
                 try {
                     tickCount++;
+                    // إرسال موقع دقيق لحل مشكلة Y وإثبات الحضور المادي
                     client.queue('player_auth_input', {
-                        pitch: 0, yaw: 0, position: b.pos, move_vector: { x: 0, z: 0 }, head_yaw: 0, input_data: 0n,
-                        play_mode: 0, interaction_model: 0, gaze_direction: { x: 0, y: 0, z: 1 }, tick: tickCount, delta: { x: 0, y: 0, z: 0 }
+                        pitch: 0, 
+                        yaw: 0, 
+                        position: b.pos, 
+                        move_vector: { x: 0, z: 0 }, 
+                        head_yaw: 0, 
+                        input_data: 0n,
+                        play_mode: 0, 
+                        interaction_model: 0, 
+                        gaze_direction: { x: 0, y: 0, z: 1 }, 
+                        tick: tickCount, 
+                        delta: { x: 0, y: 0, z: 0 }
                     });
                 } catch (e) {}
             }, 50);
 
+            // تأرجح اليد لضمان النشاط
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
-                if (!b.connected) return clearInterval(b.moveInterval);
+                if (!b.connected || !isSpawned) return clearInterval(b.moveInterval);
                 try {
                     client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId });
                 } catch (e) {}
@@ -127,8 +135,19 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        client.on('respawn', () => {
-            client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
+        // الاستجابة الدقيقة لتحديثات السيرفر
+        client.on('move_player', (pkt) => {
+            if (pkt.runtime_entity_id === b.runtimeId) {
+                b.pos = pkt.position;
+                saveDB();
+            }
+        });
+
+        client.on('respawn', (pkt) => {
+             // عندما يموت أو يرسبن، نقبل الإحداثيات ونؤكد الاستعداد
+            b.pos = pkt.position;
+            saveDB();
+            client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 2, position: b.pos });
         });
 
         client.on('error', (err) => { handleDisconnect(id); });
@@ -175,9 +194,6 @@ function handleDisconnect(id) {
     }
 }
 
-// ==========================================
-// 3. الواجهة (HTML) مع زر التحقق
-// ==========================================
 const ui = (content) => `
 <html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>لوحة الملك كينجا</title>
@@ -211,7 +227,6 @@ const ui = (content) => `
 app.get('/', (req, res) => {
     let botList = Object.values(data.bots).map(b => {
         let statusText = b.connecting ? 'جاري الاتصال...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
-        // زر التحقق يظهر فقط إذا التقط البوت الرابط
         let verifyBtn = b.verifyLink ? `<a href="${b.verifyLink}" target="_blank" class="btn btn-verify" onclick="setTimeout(()=>location.reload(), 5000)">⚠️ السيرفر يطلب التحقق! اضغط هنا ⚠️</a>` : '';
         
         return `
@@ -222,7 +237,7 @@ app.get('/', (req, res) => {
                 <span class="${b.connected ? 'status-on' : 'status-off'}">${statusText}</span>
                 ${verifyBtn}
             </div>
-            <div class="xyz" style="margin: 0 15px;">X: ${b.pos.x.toFixed(1)}<br>Y: ${b.pos.y.toFixed(1)}<br>Z: ${b.pos.z.toFixed(1)}</div>
+            <div class="xyz" style="margin: 0 15px;">X: ${b.pos && b.pos.x ? b.pos.x.toFixed(1) : 0}<br>Y: ${b.pos && b.pos.y ? b.pos.y.toFixed(1) : 0}<br>Z: ${b.pos && b.pos.z ? b.pos.z.toFixed(1) : 0}</div>
             <div>
                 <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled opacity:0.5':''}>تشغيل</button>
                 <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled opacity:0.5':''}>إيقاف</button>
@@ -247,9 +262,6 @@ app.get('/', (req, res) => {
     `));
 });
 
-// ==========================================
-// 4. العمليات الخلفية
-// ==========================================
 app.post('/add', (req, res) => {
     const id = Date.now().toString();
     data.bots[id] = { 
