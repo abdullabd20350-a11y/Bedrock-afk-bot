@@ -45,7 +45,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال الذكي (إصلاح السرفايفل)
+// 2. محرك الاتصال الآمن (بدون حركة وهمية)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -61,9 +61,11 @@ function connectBot(id) {
         });
         const client = activeClients[id];
 
-        let tickCount = 0n;
-
-        client.on('start_game', (pkt) => { b.runtimeId = pkt.runtime_entity_id; });
+        client.on('start_game', (pkt) => { 
+            b.runtimeId = pkt.runtime_entity_id; 
+            // طلب تحميل العالم حول البوت حتى لا يسقط في الفراغ
+            client.queue('request_chunk_radius', { chunk_radius: 4 });
+        });
 
         client.on('spawn', () => {
             b.connected = true;
@@ -72,66 +74,32 @@ function connectBot(id) {
             if (client.startGameData) b.pos = client.startGameData.player_position;
             saveDB();
 
-            // نظام الرسبون التلقائي
+            // نظام الرسبون التلقائي الحقيقي
             client.on('respawn', () => {
                 client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
             });
 
-            // تحديث الإحداثيات الحقيقية من السيرفر
+            // تحديث الإحداثيات فقط إذا حركه السيرفر (مثلاً إذا ضربته أنت أو دفعه الماء)
             client.on('move_player', (pkt) => {
                 if (pkt.runtime_entity_id === b.runtimeId) {
                     b.pos = pkt.position;
                 }
             });
 
-            // محرك الحركة الفيزيائي المتطور (كل 20 ثانية)
+            // محرك الـ Anti-AFK الآمن: (الضرب في الهواء فقط)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
                 try {
-                    tickCount++;
-                    
-                    // 1. التفات عشوائي لإثبات الوجود
-                    const randomYaw = Math.random() * 360;
-                    const randomPitch = (Math.random() * 40) - 20;
-
-                    client.queue('move_player', { 
-                        runtime_entity_id: b.runtimeId, 
-                        position: b.pos, 
-                        pitch: randomPitch, 
-                        yaw: randomYaw, 
-                        head_yaw: randomYaw, 
-                        mode: 0, 
-                        on_ground: true, 
-                        teleporter_id: 0,
-                        tick: tickCount
-                    });
-
-                    // 2. إرسال حزمة تفاعل (ضرب باليد)
+                    // إرسال حزمة (الضربة باليد) لإثبات النشاط للسيرفر بدون تغيير المكان
                     client.queue('animate', {
-                        action_id: 1, 
+                        action_id: 1, // 1 = Swing Arm (تحريك اليد)
                         runtime_entity_id: b.runtimeId
                     });
-
-                    // 3. قفزة بسيطة مصححة فيزيائياً
-                    let p = { ...b.pos };
-                    p.y += 0.5; // قفزة خفيفة لا تسبب تعليق السيرفر
-                    client.queue('move_player', { 
-                        runtime_entity_id: b.runtimeId, position: p, pitch: randomPitch, yaw: randomYaw, head_yaw: randomYaw, mode: 0, on_ground: false, teleporter_id: 0, tick: tickCount 
-                    });
-
-                    setTimeout(() => {
-                        if (b.connected) {
-                            client.queue('move_player', { 
-                                runtime_entity_id: b.runtimeId, position: b.pos, pitch: randomPitch, yaw: randomYaw, head_yaw: randomYaw, mode: 0, on_ground: true, teleporter_id: 0, tick: tickCount 
-                            });
-                        }
-                    }, 500);
-
                 } catch (e) {}
-            }, 20000); // كل 20 ثانية
+            }, 30000); // ضرب الهواء كل 30 ثانية
 
-            // نظام التجديد كل 20 دقيقة
+            // تجديد الاتصال كل 20 دقيقة
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
                 b.isRelogging = true; 
@@ -234,7 +202,7 @@ app.get('/', (req, res) => {
     }).join('');
 
     res.send(ui(`
-        <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو</h1>
+        <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو (السرفايفل)</h1>
         <form action="/add" method="POST" style="background:#f1f2f6; padding:20px; border-radius:15px; margin-bottom:20px; display: flex; flex-wrap: wrap; justify-content: center;">
             <input name="botName" placeholder="اسم البوت" required>
             <input name="host" placeholder="IP السيرفر" required>
