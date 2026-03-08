@@ -294,33 +294,39 @@ app.post('/control', checkAuth, (req, res) => {
             bot.client.on('close', () => { bot.connected = false; bot.connecting = false; saveData(); });
             
         } else {
-            // كود الجافا المأخوذ من نسختك الناجحة بالملي
-            bot.client = mineflayer.createBot({ 
-                host: bot.host, 
-                port: bot.port, 
-                username: bot.botName,
-                auth: 'offline' 
-            });
-            
-            bot.client.on('spawn', () => { 
-                bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
-                bot.pos = bot.client.entity.position;
-                saveData();
-            });
-            
-            bot.client.on('error', (err) => { 
-                // تجاهل خطأ ECONNRESET إذا كان البوت قد دخل فعلياً لكي لا يطفي الموقع
-                if (err.code === 'ECONNRESET' && bot.connected) {
-                    console.log('Ignored ECONNRESET because bot is already connected.');
-                    return;
-                }
-                console.log('Java Bot Error:', err); 
-                bot.connected = false; bot.connecting = false; 
-                saveData();
-            });
-            
-            bot.client.on('end', () => { bot.connected = false; bot.connecting = false; saveData(); });
-            bot.client.on('death', () => bot.deathCount++);
+            try {
+                // تبسيط إعدادات الجافا قدر الإمكان
+                bot.client = mineflayer.createBot({ 
+                    host: bot.host, 
+                    port: parseInt(bot.port), // التأكد من أن البورت رقم صحيح 
+                    username: bot.botName,
+                    auth: 'offline' // إجبار وضع الأوفلاين
+                });
+                
+                bot.client.on('spawn', () => { 
+                    bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
+                    bot.pos = bot.client.entity.position;
+                    saveData();
+                });
+                
+                bot.client.on('error', (err) => { 
+                    // تجاهل خطأ ECONNRESET الذي يظهر أحياناً ولكنه لا يعني بالضرورة فشل الاتصال النهائي
+                    if (err.code === 'ECONNRESET') {
+                         console.log('Ignored ECONNRESET');
+                    } else {
+                         console.log('Java Bot Error:', err); 
+                         bot.connected = false; bot.connecting = false; 
+                         saveData();
+                    }
+                });
+                
+                bot.client.on('end', () => { bot.connected = false; bot.connecting = false; saveData(); });
+                bot.client.on('death', () => bot.deathCount++);
+            } catch (err) {
+                 console.log("Java setup error:", err);
+                 bot.connected = false; bot.connecting = false;
+                 saveData();
+            }
         }
     } else if (action === 'stop') {
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
