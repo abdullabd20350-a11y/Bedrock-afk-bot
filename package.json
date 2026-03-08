@@ -1,7 +1,7 @@
 {
   "name": "kinga-bedrock-bot",
   "version": "1.0.0",
-  "description": "Stable Bedrock Bot for Kinga",
+  "description": "Stable Bedrock AFK Bot by Kinga",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
