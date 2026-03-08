@@ -31,15 +31,12 @@ if (fs.existsSync(dbPath)) {
 
 function saveData() {
     let cleanData = { users: data.users, activeBots: {} };
-    for (let name in data.activeBots) {
-        let b = data.activeBots[name];
-        cleanData.activeBots[name] = {
-            host: b.host, port: b.port, type: b.type, owner: b.owner,
-            version: b.version, // تم إضافة حفظ الإصدار
-            botName: b.botName, // تم إضافة حفظ الاسم
+    for (let id in data.activeBots) {
+        let b = data.activeBots[id];
+        cleanData.activeBots[id] = {
+            id: b.id, host: b.host, port: b.port, type: b.type, owner: b.owner, botName: b.botName,
             connected: b.connected, connecting: b.connecting,
-            pos: b.pos, deathCount: b.deathCount, startTime: b.startTime,
-            lastStatus: b.lastStatus 
+            pos: b.pos, deathCount: b.deathCount, startTime: b.startTime
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(cleanData, null, 2));
@@ -51,34 +48,7 @@ function checkAuth(req, res, next) {
 }
 
 // ==========================================
-// 2. نظام الحركة العشوائية (Anti-AFK)
-// ==========================================
-function startAntiAFK(bot) {
-    const afkLoop = () => {
-        if (!bot.connected) return;
-
-        if (bot.type === 'bedrock' && bot.client) {
-            bot.client.queue('animate', { action_id: 1, runtime_entity_id: 1 });
-        } else if (bot.client && bot.client.setControlState) {
-            bot.client.setControlState('jump', true);
-            setTimeout(() => { if (bot.connected) bot.client.setControlState('jump', false); }, 500);
-        }
-
-        const nextTime = Math.floor(Math.random() * (180000 - 120000 + 1)) + 120000;
-        bot.afkTimeout = setTimeout(afkLoop, nextTime);
-    };
-    bot.afkTimeout = setTimeout(afkLoop, 5000);
-}
-
-function stopAntiAFK(bot) {
-    if (bot.afkTimeout) {
-        clearTimeout(bot.afkTimeout);
-        bot.afkTimeout = null;
-    }
-}
-
-// ==========================================
-// 3. واجهة المستخدم (HTML)
+// 2. واجهة المستخدم (HTML)
 // ==========================================
 const layout = (title, content, lang = 'ar') => `
 <html dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
@@ -104,7 +74,6 @@ const layout = (title, content, lang = 'ar') => `
         .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
         .edit-panel { display: none; background: #e9ecef; padding: 15px; border-radius: 10px; margin-top: 15px; }
-        .error-msg { background: #f8d7da; color: #721c24; padding: 8px; border-radius: 8px; margin-top: 10px; font-size: 0.85em; font-weight: bold; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body>${content}</body></html>`;
@@ -141,7 +110,7 @@ app.get('/register', (req, res) => {
 app.get('/', checkAuth, (req, res) => {
     const lang = req.session.lang || 'ar';
     const isAr = lang === 'ar';
-    let myBots = Object.keys(data.activeBots).filter(n => data.activeBots[n].owner === req.session.user);
+    let myBots = Object.keys(data.activeBots).filter(id => data.activeBots[id].owner === req.session.user);
     
     let botCards = myBots.map(id => {
         const b = data.activeBots[id];
@@ -152,12 +121,10 @@ app.get('/', checkAuth, (req, res) => {
         return `
         <div class="bot-card" style="border-${isAr?'right':'left'}: 6px solid ${b.connected?'#28a745':(b.connecting?'#ffc107':'#dc3545')};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h3 style="margin:0;">🤖 ${b.botName} <small>(${b.type}${b.version ? ` - ${b.version}` : ''})</small></h3>
+                <h3 style="margin:0;">🤖 ${b.botName} <small>(${b.type})</small></h3>
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
             
-            ${b.lastStatus && !b.connected && !b.connecting ? `<div class="error-msg">⚠️ السبب: ${b.lastStatus}</div>` : ''}
-
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                     <strong>📍 ${isAr?'الإحداثيات':'Coordinates'}:</strong>
@@ -174,20 +141,12 @@ app.get('/', checkAuth, (req, res) => {
             </div>
 
             <div id="edit-${id}" class="edit-panel">
-                <form action="/edit" method="POST" style="display:flex; flex-direction:column; gap:10px; margin:0;">
+                <form action="/edit" method="POST" style="display:flex; gap:10px; margin:0; align-items:center;">
                     <input type="hidden" name="id" value="${id}">
-                    <div style="display:flex; gap:10px;">
-                        <input name="botName" value="${b.botName}" placeholder="${isAr?'اسم البوت':'Bot Name'}" style="margin:0; flex:1;" required>
-                        <select name="type" id="type-${id}" onchange="toggleVersionEdit('${id}')" style="margin:0; flex:1;">
-                            <option value="bedrock" ${b.type==='bedrock'?'selected':''}>Bedrock</option>
-                            <option value="java" ${b.type==='java'?'selected':''}>Java</option>
-                        </select>
-                    </div>
-                    <div style="display:flex; gap:10px;">
-                        <input name="address" value="${b.host}:${b.port}" placeholder="IP:Port" style="margin:0; flex:2;" required>
-                        <input name="version" id="ver-${id}" value="${b.version || ''}" placeholder="${isAr?'الإصدار (مثال: 1.20.4)':'Version'}" style="margin:0; flex:1; display:${b.type==='java'?'block':'none'};">
-                        <button class="btn btn-start" style="flex:1; padding:10px;">${isAr?'حفظ':'Save'}</button>
-                    </div>
+                    <input name="botName" value="${b.botName}" placeholder="${isAr?'الاسم':'Name'}" style="margin:0; width:25%;" required>
+                    <select name="type" style="margin:0; width:20%;"><option value="bedrock" ${b.type==='bedrock'?'selected':''}>Bedrock</option><option value="java" ${b.type==='java'?'selected':''}>Java</option></select>
+                    <input name="address" value="${b.host}:${b.port}" style="margin:0; width:35%;" required>
+                    <button class="btn btn-start" style="width:20%; padding:10px;">${isAr?'حفظ':'Save'}</button>
                 </form>
             </div>
 
@@ -210,11 +169,10 @@ app.get('/', checkAuth, (req, res) => {
             </div>
         </div>
         
-        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0; background:#f9f9f9; padding:15px; border-radius:15px;">
-            <select name="type" id="tp" onchange="toggleVersionAdd()"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
+        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0;">
+            <select name="type" id="tp"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
             <input name="botName" placeholder="${isAr?'اسم البوت':'Bot Name'}" required>
-            <input name="address" placeholder="${isAr?'الآيبي (مثال: server.aternos.me:12345)':'IP:Port'}" required style="grid-column:span 2;">
-            <input name="version" id="add-version" placeholder="${isAr?'الإصدار (للجافا فقط، مثال: 1.20.4)':'Java Version (e.g. 1.20.4)'}" style="grid-column:span 2; display:none;">
+            <input name="address" placeholder="${isAr?'الآيبي (مثال: example.aternos.me:12345)':'IP:Port (e.g. server.com:25565)'}" required style="grid-column:span 2;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
 
@@ -225,20 +183,11 @@ app.get('/', checkAuth, (req, res) => {
             const el = document.getElementById('edit-' + id);
             el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
         }
-        function toggleVersionEdit(id) {
-            const type = document.getElementById('type-' + id).value;
-            document.getElementById('ver-' + id).style.display = type === 'java' ? 'block' : 'none';
-        }
-        function toggleVersionAdd() {
-            const type = document.getElementById('tp').value;
-            document.getElementById('add-version').style.display = type === 'java' ? 'block' : 'none';
-        }
 
-        // تم إصلاح زر الحذف هنا
         function ctl(id,a){ 
-            if(a === 'delete' && !confirm('${isAr?'هل أنت متأكد من الحذف؟':'Are you sure you want to delete?'}')) return;
+            if(a === 'delete' && !confirm('${isAr?'هل أنت متأكد من الحذف؟':'Are you sure?'}')) return;
             fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,action:a})})
-            .then(()=>setTimeout(()=>location.reload(), 500));
+            .then(()=>setTimeout(()=>location.reload(), 800));
         }
         
         setInterval(() => {
@@ -256,15 +205,15 @@ app.get('/', checkAuth, (req, res) => {
         }, 1000);
 
         setInterval(() => {
-            if (document.body.innerText.includes('جاري الانضمام...')) {
+            if (document.body.innerText.includes('Online') || document.body.innerText.includes('متصل') || document.body.innerText.includes('...')) {
                 location.reload();
             }
-        }, 3000);
+        }, 10000);
     </script>`, isAr ? 'ar' : 'en'));
 });
 
 // ==========================================
-// 4. العمليات الخلفية الأساسية 
+// 3. العمليات الخلفية الأساسية (الإضافة، التعديل، التحكم)
 // ==========================================
 
 app.post('/auth-register', (req, res) => {
@@ -285,8 +234,8 @@ app.post('/auth-login', (req, res) => {
 });
 
 app.post('/add', checkAuth, (req, res) => {
-    const { type, address, botName, version } = req.body;
-    const id = Date.now().toString(); // إنشاء ID فريد لكل بوت لتسهيل تعديل الاسم
+    const { type, address, botName } = req.body;
+    const id = Date.now().toString(); // آي دي فريد لكل بوت
 
     let host = address.trim();
     let port = type === 'bedrock' ? 19132 : 25565;
@@ -297,14 +246,15 @@ app.post('/add', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    data.activeBots[id] = { id, botName, host, port, type, version: (type==='java'?version.trim():''), owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null, lastStatus: '' };
-    saveData(); 
+    data.activeBots[id] = { id, botName, host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
+    saveData();
     res.redirect('/');
 });
 
 app.post('/edit', checkAuth, (req, res) => {
-    const { id, botName, type, address, version } = req.body;
+    const { id, botName, type, address } = req.body;
     const bot = data.activeBots[id];
+    
     if (!bot || bot.connected || bot.connecting) return res.redirect('/');
 
     let host = address.trim();
@@ -317,11 +267,9 @@ app.post('/edit', checkAuth, (req, res) => {
     }
 
     bot.botName = botName;
-    bot.type = type; 
-    bot.host = host; 
-    bot.port = port; 
-    bot.version = type === 'java' ? version.trim() : '';
-    bot.lastStatus = '';
+    bot.type = type;
+    bot.host = host;
+    bot.port = port;
     saveData();
     res.redirect('/');
 });
@@ -329,21 +277,20 @@ app.post('/edit', checkAuth, (req, res) => {
 app.post('/control', checkAuth, (req, res) => {
     const { id, action } = req.body;
     const bot = data.activeBots[id];
-    
     if(!bot) return res.sendStatus(404);
-
+    
     if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
-        bot.lastStatus = ''; 
         
         bot.connectTimeout = setTimeout(() => {
             if (bot.connecting) {
-                bot.connecting = false; bot.connected = false;
-                bot.lastStatus = 'انتهى الوقت (Timeout) - تأكد من تشغيل السيرفر أو صحة الإصدار';
+                console.log(`[System] Timeout! ${bot.botName} could not connect.`);
+                bot.connecting = false;
+                bot.connected = false;
                 if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
                 saveData();
             }
-        }, 45000); 
+        }, 45000);
 
         const clearTimer = () => { if(bot.connectTimeout) clearTimeout(bot.connectTimeout); };
 
@@ -352,70 +299,56 @@ app.post('/control', checkAuth, (req, res) => {
             
             bot.client.on('spawn', () => { 
                 clearTimer();
-                bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); bot.lastStatus = '';
+                bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
-                startAntiAFK(bot); 
             });
-            bot.client.on('error', (err) => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; bot.lastStatus = err.message; });
-            bot.client.on('close', () => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; });
+            bot.client.on('error', () => { clearTimer(); bot.connected = false; bot.connecting = false; });
+            bot.client.on('close', () => { clearTimer(); bot.connected = false; bot.connecting = false; });
             
         } else {
             try {
-                // الجافا الآن يعمل بالإصدار المكتوب يدوياً لتجنب تعليق Mineflayer
+                // رجعنا للاتصال القديم الذي كان ناجحاً معك تماماً
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
                     port: bot.port, 
-                    username: bot.botName, 
-                    auth: 'offline',
-                    version: bot.version ? bot.version : false // إذا تُرك فارغاً سيحاول تلقائياً
+                    username: bot.botName,
+                    auth: 'offline', 
+                    version: false
                 });
                 
                 bot.client.on('spawn', () => { 
                     clearTimer();
-                    bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); bot.lastStatus = '';
+                    bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
                     bot.pos = bot.client.entity.position;
-                    startAntiAFK(bot); 
                 });
                 
                 bot.client.on('kicked', (reason) => {
-                    clearTimer(); stopAntiAFK(bot); 
+                    clearTimer(); console.log(`[Java Kicked] -> ${reason}`);
                     bot.connected = false; bot.connecting = false;
-                    bot.lastStatus = typeof reason === 'string' ? reason : JSON.stringify(reason);
-                    saveData();
                 });
 
                 bot.client.on('error', (err) => { 
-                    clearTimer(); stopAntiAFK(bot); 
+                    clearTimer(); console.log(`[Java Network Error Caught]`);
                     bot.connected = false; bot.connecting = false; 
-                    bot.lastStatus = 'مشكلة في الشبكة: ' + err.message;
-                    saveData();
                 });
                 
-                bot.client.on('end', () => { 
-                    clearTimer(); stopAntiAFK(bot); 
-                    bot.connected = false; bot.connecting = false; 
-                    if(!bot.lastStatus) bot.lastStatus = "تم قطع الاتصال بالسيرفر";
-                    saveData();
-                });
+                bot.client.on('end', () => { clearTimer(); bot.connected = false; bot.connecting = false; });
                 bot.client.on('death', () => bot.deathCount++);
             } catch (err) {
-                clearTimer(); stopAntiAFK(bot); 
+                clearTimer(); console.log("[Java Critical Error Caught]");
                 bot.connected = false; bot.connecting = false;
-                bot.lastStatus = 'خطأ داخلي: ' + err.message;
             }
         }
     } else if (action === 'stop') {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout); 
-        stopAntiAFK(bot); 
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        bot.connected = false; bot.connecting = false; bot.startTime = null; bot.lastStatus = 'تم الإيقاف يدوياً';
+        bot.connected = false; bot.connecting = false; bot.startTime = null;
         saveData();
     } else if (action === 'delete') {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout);
-        stopAntiAFK(bot);
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        delete data.activeBots[id]; // إصلاح مسح البوت من الذاكرة
-        saveData(); // حفظ التغيير في الملف
+        delete data.activeBots[id]; // يعتمد على الـ id لضمان الحذف الدقيق
+        saveData();
     }
     res.sendStatus(200);
 });
@@ -423,4 +356,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running with Manual Version & Fixes!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Classic Java Auth!'));
