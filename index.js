@@ -47,7 +47,7 @@ function checkAuth(req, res, next) {
 }
 
 // ==========================================
-// 2. نظام الحركة العشوائية (كل دقيقتين)
+// 2. نظام الحركة العشوائية الحقيقي (مشي/قفز)
 // ==========================================
 function startAntiAFK(bot) {
     const afkLoop = () => {
@@ -84,9 +84,9 @@ function startAntiAFK(bot) {
                 bot.pos = currentPos;
             } catch (e) {}
         }
-        bot.afkTimeout = setTimeout(afkLoop, 120000); // تكرار كل دقيقتين
+        bot.afkTimeout = setTimeout(afkLoop, 120000); // كل دقيقتين
     };
-    bot.afkTimeout = setTimeout(afkLoop, 10000);
+    bot.afkTimeout = setTimeout(afkLoop, 15000); // أول حركة بعد 15 ثانية
 }
 
 // ==========================================
@@ -124,7 +124,6 @@ app.get('/register', (req, res) => {
 });
 
 app.get('/', checkAuth, (req, res) => {
-    const isAr = true;
     let myBots = Object.keys(data.activeBots).filter(id => data.activeBots[id].owner === req.session.user);
     let botCards = myBots.map(id => {
         const b = data.activeBots[id];
@@ -175,7 +174,7 @@ app.get('/', checkAuth, (req, res) => {
 });
 
 // ==========================================
-// 4. المنطق الخلفي
+// 4. المنطق الخلفي - العودة للاتصال الأصلي
 // ==========================================
 app.post('/auth-register', (req, res) => {
     const { username, password, confirm } = req.body;
@@ -217,16 +216,22 @@ app.post('/control', checkAuth, (req, res) => {
     if (action === 'start' && !b.connected) {
         b.connecting = true; saveData();
         if (b.type === 'java') {
+            // كود الجافا الأصلي والناجح 100% بدون أي إضافات معطلة
             b.client = mineflayer.createBot({ host: b.host, port: b.port, username: b.botName, auth: 'offline' });
-            b.client.on('spawn', () => { b.connected = true; b.connecting = false; b.pos = b.client.entity.position; startAntiAFK(b); saveData(); });
-            b.client.on('error', () => { b.connected = false; b.connecting = false; saveData(); });
+            b.client.on('spawn', () => { 
+                b.connected = true; b.connecting = false; b.pos = b.client.entity.position; 
+                saveData(); 
+                startAntiAFK(b); 
+            });
+            b.client.on('error', (err) => { console.log('Bot Error:', err); b.connected = false; b.connecting = false; saveData(); });
             b.client.on('end', () => { b.connected = false; b.connecting = false; saveData(); });
         } else {
             b.client = bedrock.createClient({ host: b.host, port: b.port, username: b.botName, offline: true });
             b.client.on('spawn', () => { 
                 b.connected = true; b.connecting = false; 
                 if(b.client.startGameData) b.pos = b.client.startGameData.player_position;
-                startAntiAFK(b); saveData(); 
+                saveData(); 
+                startAntiAFK(b); 
             });
             b.client.on('error', () => { b.connected = false; b.connecting = false; saveData(); });
         }
