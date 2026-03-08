@@ -64,7 +64,6 @@ function connectBot(id) {
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
             if (pkt.player_position) b.pos = pkt.player_position;
-            // إجبار السيرفر على تحميل الخريطة
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
@@ -74,20 +73,17 @@ function connectBot(id) {
             b.retryCount = 0; 
             saveDB();
 
-            // 🔥 الحل الجذري 1: إخبار السيرفر بإنهاء شاشة التحميل
             client.queue('set_local_player_as_initialized', {
                 runtime_entity_id: b.runtimeId
             });
 
             let tickCount = 0n;
 
-            // 🔥 الحل الجذري 2: محاكاة نبض اللعبة (Tick) كل 50 ملي ثانية
             if (b.physicsInterval) clearInterval(b.physicsInterval);
             b.physicsInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.physicsInterval);
                 try {
                     tickCount++;
-                    // هذه الحزمة هي التي تثبت للسيرفر أن هذا لاعب حقيقي
                     client.queue('player_auth_input', {
                         pitch: 0,
                         yaw: 0,
@@ -104,14 +100,13 @@ function connectBot(id) {
                 } catch (e) {}
             }, 50);
 
-            // التقاط الإحداثيات الحقيقية بعد السقوط من السماء
             client.on('move_player', (pkt) => {
                 if (pkt.runtime_entity_id === b.runtimeId) {
                     b.pos = pkt.position;
+                    saveDB(); // حفظ الإحداثيات عند تغيرها لتظهر بعد التحديث
                 }
             });
 
-            // Anti-AFK آمن (تأرجح اليد فقط)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
@@ -123,7 +118,6 @@ function connectBot(id) {
                 } catch (e) {}
             }, 30000);
 
-            // التجديد التلقائي
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
                 b.isRelogging = true; 
@@ -196,6 +190,7 @@ const ui = (content) => `
     .btn-start { background: #28a745; color: white; }
     .btn-stop { background: #ffc107; color: #222; }
     .btn-del { background: #dc3545; color: white; }
+    .btn-refresh { background: #17a2b8; color: white; margin-bottom: 20px; }
     input { padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin: 5px; width: 100%; max-width: 180px; }
     .xyz { background: #2c3e50; color: #34e7e4; padding: 10px; border-radius: 10px; font-family: 'Courier New', monospace; font-weight: bold; }
 </style></head><body><div class="container">${content}</div>
@@ -207,7 +202,8 @@ const ui = (content) => `
             body: JSON.stringify({id, action})
         }).then(() => setTimeout(() => location.reload(), 800));
     }
-    setInterval(() => location.reload(), 5000); 
+    // تم إلغاء التحديث التلقائي لمنع مسح الكتابة. 
+    // أضفنا زر تحديث يدوي لتحديث الإحداثيات عند الحاجة.
 </script></body></html>`;
 
 app.get('/', (req, res) => {
@@ -230,13 +226,17 @@ app.get('/', (req, res) => {
     }).join('');
 
     res.send(ui(`
-        <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو (إصدار السرفايفل الحقيقي)</h1>
+        <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو</h1>
+        
         <form action="/add" method="POST" style="background:#f1f2f6; padding:20px; border-radius:15px; margin-bottom:20px; display: flex; flex-wrap: wrap; justify-content: center;">
             <input name="botName" placeholder="اسم البوت" required>
             <input name="host" placeholder="IP السيرفر" required>
             <input name="port" placeholder="البورت" value="19132" required>
             <button class="btn btn-start">إضافة بوت</button>
         </form>
+        
+        <button class="btn btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة</button>
+        
         <div id="botList">${botList || '<p style="color: #999;">لا توجد بوتات مضافة حالياً</p>'}</div>
     `));
 });
