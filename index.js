@@ -13,17 +13,20 @@ app.use(session({
 }));
 
 // ==========================================
-// 1. إدارة البيانات (تحسين الحفظ)
+// 1. إدارة البيانات
 // ==========================================
 const dbPath = './database.json';
 let data = { bots: {} };
 
-// محاولة تحميل البيانات عند التشغيل
 if (fs.existsSync(dbPath)) {
     try { 
         data = JSON.parse(fs.readFileSync(dbPath));
-        // تصفير حالة الاتصال عند بداية تشغيل السيرفر فقط
-        for (let id in data.bots) data.bots[id].connected = false;
+        for (let id in data.bots) {
+            data.bots[id].connected = false;
+            data.bots[id].connecting = false;
+            data.bots[id].shouldRun = false; // التحكم بالرغبة في التشغيل
+            data.bots[id].retryCount = 0;    // عداد المحاولات
+        }
     } catch (e) { data = { bots: {} }; }
 }
 
@@ -33,7 +36,7 @@ function saveDB() {
         let b = data.bots[id];
         toSave.bots[id] = {
             id: b.id, host: b.host, port: b.port, botName: b.botName,
-            pos: b.pos, connected: b.connected // حفظ الحالة الحقيقية
+            pos: b.pos, connected: b.connected, connecting: b.connecting
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(toSave, null, 2));
@@ -42,62 +45,117 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الحركة والنشاط (XYZ Live)
+// 2. محرك الاتصال الذكي (الرسبون + 20 دقيقة + المحاولات)
 // ==========================================
-function startBotLogic(id) {
+function connectBot(id) {
     const b = data.bots[id];
-    const client = activeClients[id];
+    if (!b || !b.shouldRun) return;
 
-    client.on('start_game', (pkt) => { b.runtimeId = pkt.runtime_entity_id; });
+    b.connecting = true;
+    b.connected = false;
+    saveDB();
 
-    client.on('spawn', () => {
-        b.connected = true;
-        console.log(`[${b.botName}] متصل الآن!`);
-        
-        if (client.startGameData) b.pos = client.startGameData.player_position;
-        saveDB();
+    try {
+        activeClients[id] = bedrock.createClient({ 
+            host: b.host, port: b.port, username: b.botName, offline: true 
+        });
+        const client = activeClients[id];
 
-        // تحديث XYZ عند أي حركة من السيرفر
-        client.on('move_player', (pkt) => {
-            if (pkt.runtime_entity_id === b.runtimeId) {
-                b.pos = pkt.position;
-            }
+        client.on('start_game', (pkt) => { b.runtimeId = pkt.runtime_entity_id; });
+
+        client.on('spawn', () => {
+            b.connected = true;
+            b.connecting = false;
+            b.retryCount = 0; // تصفير المحاولات عند النجاح
+            if (client.startGameData) b.pos = client.startGameData.player_position;
+            saveDB();
+
+            // نظام الرسبون التلقائي
+            client.on('respawn', () => {
+                client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
+            });
+
+            // 1. حركة عشوائية كل دقيقة
+            if (b.moveInterval) clearInterval(b.moveInterval);
+            b.moveInterval = setInterval(() => {
+                if (!b.connected) return clearInterval(b.moveInterval);
+                try {
+                    let p = { ...b.pos };
+                    if (Math.random() > 0.5) {
+                        p.y += 1.2; 
+                        client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: false, teleporter_id: 0 });
+                        setTimeout(() => { if(b.connected) { p.y -= 1.2; client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 }); }}, 500);
+                    } else {
+                        p.x += (Math.random() - 0.5) * 2;
+                        p.z += (Math.random() - 0.5) * 2;
+                        client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 });
+                    }
+                    b.pos = p; 
+                } catch (e) {}
+            }, 60000);
+
+            // 2. نظام التجديد كل 20 دقيقة (20 Min Cycle)
+            if (b.reloginTimer) clearTimeout(b.reloginTimer);
+            b.reloginTimer = setTimeout(() => {
+                console.log(`[${b.botName}] مرت 20 دقيقة، جاري الخروج والدخول السريع...`);
+                b.isRelogging = true; // علامة تميز هذا الخروج بأنه مبرمج
+                client.disconnect();
+            }, 20 * 60 * 1000); // 20 دقيقة
         });
 
-        // حركة تلقائية كل دقيقة
-        if (b.moveInterval) clearInterval(b.moveInterval);
-        b.moveInterval = setInterval(() => {
-            if (!b.connected || !activeClients[id]) return clearInterval(b.moveInterval);
-            try {
-                let p = { ...b.pos };
-                if (Math.random() > 0.5) {
-                    p.y += 1.2; // قفزة
-                    client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: false, teleporter_id: 0 });
-                    setTimeout(() => { if(b.connected) { p.y -= 1.2; client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 }); }}, 500);
-                } else {
-                    p.x += (Math.random() - 0.5) * 2;
-                    p.z += (Math.random() - 0.5) * 2;
-                    client.queue('move_player', { runtime_entity_id: b.runtimeId, position: p, pitch: 0, yaw: 0, head_yaw: 0, mode: 0, on_ground: true, teleporter_id: 0 });
-                }
-                b.pos = p; // تحديث الإحداثيات في اللوحة
-            } catch (e) {}
-        }, 60000);
-    });
+        client.on('error', (err) => { handleDisconnect(id); });
+        client.on('close', () => { handleDisconnect(id); });
 
-    client.on('error', (err) => { 
-        b.connected = false; 
+    } catch (e) {
+        handleDisconnect(id);
+    }
+}
+
+// دالة معالجة الفصل (الانهيار أو التجديد)
+function handleDisconnect(id) {
+    const b = data.bots[id];
+    if (!b) return;
+
+    // تنظيف الذاكرة
+    if (b.moveInterval) clearInterval(b.moveInterval);
+    if (b.reloginTimer) clearTimeout(b.reloginTimer);
+    if (activeClients[id]) delete activeClients[id];
+
+    b.connected = false;
+    b.connecting = false;
+    saveDB();
+
+    // إذا ضغطت "إيقاف" يدوياً
+    if (!b.shouldRun) return; 
+
+    // إذا كان خروجاً مبرمجاً لتجديد الـ 20 دقيقة
+    if (b.isRelogging) {
+        b.isRelogging = false;
+        setTimeout(() => connectBot(id), 5000); // انتظر 5 ثوانٍ وادخل
+        return;
+    }
+
+    // نظام المحاولات (Crash Recovery)
+    if (b.retryCount === 0) {
+        console.log(`[${b.botName}] فصل! المحاولة الأولى بعد 30 ثانية...`);
+        b.retryCount = 1;
+        setTimeout(() => connectBot(id), 30000);
+    } 
+    else if (b.retryCount === 1) {
+        console.log(`[${b.botName}] فشل مرة أخرى! المحاولة الثانية والأخيرة بعد دقيقة...`);
+        b.retryCount = 2;
+        setTimeout(() => connectBot(id), 60000);
+    } 
+    else {
+        console.log(`[${b.botName}] فشل لمرتين متتاليتين. تم إيقاف البوت نهائياً.`);
+        b.shouldRun = false; // يوقف المحاولات
+        b.retryCount = 0;
         saveDB();
-        console.log(`خطأ في ${b.botName}: ${err.message}`); 
-    });
-    
-    client.on('close', () => { 
-        b.connected = false; 
-        saveDB(); 
-    });
+    }
 }
 
 // ==========================================
-// 3. الواجهة (UI محسنة)
+// 3. الواجهة (HTML)
 // ==========================================
 const ui = (content) => `
 <html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -105,7 +163,8 @@ const ui = (content) => `
 <style>
     body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; text-align: center; }
     .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; text-align: right; }
+    .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; text-align: right; border-right: 6px solid #dc3545; }
+    .bot-card.online { border-right-color: #28a745; }
     .status-on { color: #28a745; font-weight: bold; background: #d4edda; padding: 5px 10px; border-radius: 10px; }
     .status-off { color: #dc3545; font-weight: bold; background: #f8d7da; padding: 5px 10px; border-radius: 10px; }
     .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin: 2px; transition: 0.2s; }
@@ -123,31 +182,27 @@ const ui = (content) => `
             body: JSON.stringify({id, action})
         }).then(() => setTimeout(() => location.reload(), 800));
     }
-    // تحديث الإحداثيات كل 10 ثواني بدون إعادة تحميل الصفحة بالكامل لو حبيت، 
-    // لكن حالياً بنخليها تحديث يدوي أو آلي كل 30 ثانية
-    setInterval(() => location.reload(), 30000); 
+    setInterval(() => location.reload(), 25000); 
 </script></body></html>`;
 
 app.get('/', (req, res) => {
-    let botList = Object.values(data.bots).map(b => `
-        <div class="bot-card">
+    let botList = Object.values(data.bots).map(b => {
+        let statusText = b.connecting ? 'جاري الاتصال أو المحاولة...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
+        return `
+        <div class="bot-card ${b.connected ? 'online' : ''}">
             <div>
                 <strong>🤖 ${b.botName}</strong> <br>
                 <small style="color: #666;">${b.host}:${b.port}</small> <br><br>
-                <span class="${b.connected ? 'status-on' : 'status-off'}">${b.connected ? 'متصل ✅' : 'متوقف ❌'}</span>
+                <span class="${b.connected ? 'status-on' : 'status-off'}">${statusText}</span>
             </div>
-            <div class="xyz">
-                X: ${b.pos.x.toFixed(1)}<br>
-                Y: ${b.pos.y.toFixed(1)}<br>
-                Z: ${b.pos.z.toFixed(1)}
-            </div>
+            <div class="xyz">X: ${b.pos.x.toFixed(1)}<br>Y: ${b.pos.y.toFixed(1)}<br>Z: ${b.pos.z.toFixed(1)}</div>
             <div>
-                <button class="btn btn-start" onclick="ctl('${b.id}', 'start')">تشغيل</button>
-                <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')">إيقاف</button>
+                <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled opacity:0.5':''}>تشغيل</button>
+                <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled opacity:0.5':''}>إيقاف</button>
                 <button class="btn btn-del" onclick="ctl('${b.id}', 'delete')">حذف</button>
             </div>
-        </div>
-    `).join('');
+        </div>`
+    }).join('');
 
     res.send(ui(`
         <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو</h1>
@@ -161,9 +216,15 @@ app.get('/', (req, res) => {
     `));
 });
 
+// ==========================================
+// 4. العمليات الخلفية
+// ==========================================
 app.post('/add', (req, res) => {
     const id = Date.now().toString();
-    data.bots[id] = { id, botName: req.body.botName, host: req.body.host, port: parseInt(req.body.port), pos: { x: 0, y: 0, z: 0 }, connected: false };
+    data.bots[id] = { 
+        id, botName: req.body.botName, host: req.body.host, port: parseInt(req.body.port), 
+        pos: { x: 0, y: 0, z: 0 }, connected: false, connecting: false, shouldRun: false, retryCount: 0 
+    };
     saveDB(); res.redirect('/');
 });
 
@@ -172,19 +233,21 @@ app.post('/control', (req, res) => {
     const b = data.bots[id];
     if (!b) return res.sendStatus(404);
 
-    if (action === 'start' && !b.connected) {
-        activeClients[id] = bedrock.createClient({ host: b.host, port: b.port, username: b.botName, offline: true });
-        startBotLogic(id);
+    if (action === 'start' && !b.shouldRun) {
+        b.shouldRun = true;
+        b.retryCount = 0;
+        connectBot(id);
     } else if (action === 'stop' || action === 'delete') {
-        if (activeClients[id]) {
-            activeClients[id].disconnect();
-            delete activeClients[id];
+        b.shouldRun = false;
+        b.isRelogging = false;
+        if (activeClients[id]) activeClients[id].disconnect();
+        
+        if (action === 'delete') {
+            delete data.bots[id];
+            saveDB();
         }
-        b.connected = false;
-        if (b.moveInterval) clearInterval(b.moveInterval);
-        if (action === 'delete') delete data.bots[id];
     }
-    saveDB(); res.sendStatus(200);
+    res.sendStatus(200);
 });
 
 app.listen(process.env.PORT || 10000);
