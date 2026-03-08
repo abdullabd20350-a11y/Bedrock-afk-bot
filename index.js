@@ -36,7 +36,8 @@ function saveData() {
         cleanData.activeBots[name] = {
             host: b.host, port: b.port, type: b.type, owner: b.owner,
             connected: b.connected, connecting: b.connecting,
-            pos: b.pos, deathCount: b.deathCount, startTime: b.startTime
+            pos: b.pos, deathCount: b.deathCount, startTime: b.startTime,
+            lastStatus: b.lastStatus // حفظ آخر رسالة خطأ
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(cleanData, null, 2));
@@ -56,17 +57,17 @@ function startAntiAFK(bot) {
 
         if (bot.type === 'bedrock' && bot.client) {
             bot.client.queue('animate', { action_id: 1, runtime_entity_id: 1 });
-            console.log(`[Anti-AFK] ${bot.client.username || 'Bedrock Bot'} performed an action.`);
         } else if (bot.client && bot.client.setControlState) {
             bot.client.setControlState('jump', true);
             setTimeout(() => { if (bot.connected) bot.client.setControlState('jump', false); }, 500);
-            console.log(`[Anti-AFK] ${bot.client.username} jumped.`);
         }
 
+        // الحركة القادمة بين دقيقتين و 3 دقائق
         const nextTime = Math.floor(Math.random() * (180000 - 120000 + 1)) + 120000;
         bot.afkTimeout = setTimeout(afkLoop, nextTime);
     };
-    bot.afkTimeout = setTimeout(afkLoop, 120000);
+    // أول حركة بعد 5 ثوانٍ فقط لتجنب الطرد السريع فور الدخول
+    bot.afkTimeout = setTimeout(afkLoop, 5000);
 }
 
 function stopAntiAFK(bot) {
@@ -103,6 +104,7 @@ const layout = (title, content, lang = 'ar') => `
         .auth-card { background: white; padding: 35px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin: 80px auto; text-align: center; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
         .edit-panel { display: none; background: #e9ecef; padding: 15px; border-radius: 10px; margin-top: 15px; }
+        .error-msg { background: #f8d7da; color: #721c24; padding: 8px; border-radius: 8px; margin-top: 10px; font-size: 0.85em; font-weight: bold; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body>${content}</body></html>`;
@@ -154,6 +156,8 @@ app.get('/', checkAuth, (req, res) => {
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
             
+            ${b.lastStatus && !b.connected && !b.connecting ? `<div class="error-msg">⚠️ السبب: ${b.lastStatus}</div>` : ''}
+
             <div style="margin-top:15px; background:#f4f4f4; padding:15px; border-radius:12px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:10px; align-items:center;">
                     <strong>📍 ${isAr?'الإحداثيات':'Coordinates'}:</strong>
@@ -200,7 +204,7 @@ app.get('/', checkAuth, (req, res) => {
         <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0;">
             <select name="type" id="tp"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
             <input name="botName" placeholder="${isAr?'اسم البوت':'Bot Name'}" required>
-            <input name="address" placeholder="${isAr?'الآيبي (مثال: example.aternos.me:12345)':'IP:Port (e.g. server.com:25565)'}" required style="grid-column:span 2;">
+            <input name="address" placeholder="${isAr?'الآيبي (مثال: server.aternos.me:12345)':'IP:Port'}" required style="grid-column:span 2;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
 
@@ -214,7 +218,7 @@ app.get('/', checkAuth, (req, res) => {
 
         function ctl(n,a){ 
             fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})})
-            .then(()=>setTimeout(()=>location.reload(), 800));
+            .then(()=>setTimeout(()=>location.reload(), 500));
         }
         
         setInterval(() => {
@@ -231,16 +235,17 @@ app.get('/', checkAuth, (req, res) => {
             });
         }, 1000);
 
+        // تحديث أسرع للصفحة إذا كان هناك بوت قيد الانضمام لكي لا يعلق
         setInterval(() => {
-            if (document.body.innerText.includes('Online') || document.body.innerText.includes('متصل') || document.body.innerText.includes('...')) {
+            if (document.body.innerText.includes('جاري الانضمام...')) {
                 location.reload();
             }
-        }, 10000);
+        }, 3000);
     </script>`, isAr ? 'ar' : 'en'));
 });
 
 // ==========================================
-// 4. العمليات الخلفية الأساسية (بما فيها التعديل)
+// 4. العمليات الخلفية الأساسية 
 // ==========================================
 
 app.post('/auth-register', (req, res) => {
@@ -273,17 +278,14 @@ app.post('/add', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    data.activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null };
+    data.activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null, lastStatus: '' };
     saveData(); 
     res.redirect('/');
 });
 
-// نظام تعديل البوت الجديد
 app.post('/edit', checkAuth, (req, res) => {
     const { botName, type, address } = req.body;
     const bot = data.activeBots[botName];
-    
-    // منع التعديل إذا كان البوت شغالاً أو غير موجود
     if (!bot || bot.connected || bot.connecting) return res.redirect('/');
 
     let host = address.trim();
@@ -295,9 +297,7 @@ app.post('/edit', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    bot.type = type;
-    bot.host = host;
-    bot.port = port;
+    bot.type = type; bot.host = host; bot.port = port; bot.lastStatus = '';
     saveData();
     res.redirect('/');
 });
@@ -308,12 +308,14 @@ app.post('/control', checkAuth, (req, res) => {
     
     if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
+        bot.lastStatus = ''; // مسح الأخطاء القديمة عند بدء محاولة جديدة
         
         bot.connectTimeout = setTimeout(() => {
             if (bot.connecting) {
-                console.log(`[System] Timeout! ${name} could not connect.`);
                 bot.connecting = false; bot.connected = false;
+                bot.lastStatus = 'انتهى الوقت (Timeout) - السيرفر مغلق أو لا يستجيب';
                 if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
+                saveData();
             }
         }, 45000);
 
@@ -324,54 +326,64 @@ app.post('/control', checkAuth, (req, res) => {
             
             bot.client.on('spawn', () => { 
                 clearTimer();
-                bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
+                bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); bot.lastStatus = '';
                 if(bot.client.startGameData) bot.pos = bot.client.startGameData.player_position;
                 startAntiAFK(bot); 
             });
-            bot.client.on('error', () => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; });
+            bot.client.on('error', (err) => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; bot.lastStatus = err.message; });
             bot.client.on('close', () => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; });
             
         } else {
             try {
-                // السر هنا لحل مشكلة Aternos الجافا: checkTimeoutInterval
+                // الكود المبسط الذي كان يعمل بنجاح سابقاً للجافا
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
                     port: bot.port, 
                     username: name, 
-                    auth: 'offline', 
-                    version: false,
-                    checkTimeoutInterval: 60000 // انتظار 60 ثانية لحل بطء سيرفرات Aternos
+                    auth: 'offline'
                 });
                 
                 bot.client.on('spawn', () => { 
                     clearTimer();
-                    bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); 
+                    bot.connected = true; bot.connecting = false; bot.startTime = Date.now(); bot.lastStatus = '';
                     bot.pos = bot.client.entity.position;
                     startAntiAFK(bot); 
                 });
                 
                 bot.client.on('kicked', (reason) => {
-                    clearTimer(); stopAntiAFK(bot); console.log(`[Java Kicked] -> ${reason}`);
+                    clearTimer(); stopAntiAFK(bot); 
                     bot.connected = false; bot.connecting = false;
+                    // تحويل رسالة الطرد إلى نص مفهوم
+                    bot.lastStatus = typeof reason === 'string' ? reason : JSON.stringify(reason);
+                    saveData();
                 });
 
                 bot.client.on('error', (err) => { 
-                    clearTimer(); stopAntiAFK(bot); console.log(`[Java Network Error Caught]`);
+                    clearTimer(); stopAntiAFK(bot); 
                     bot.connected = false; bot.connecting = false; 
+                    bot.lastStatus = 'مشكلة في الشبكة: ' + err.message;
+                    saveData();
                 });
                 
-                bot.client.on('end', () => { clearTimer(); stopAntiAFK(bot); bot.connected = false; bot.connecting = false; });
+                bot.client.on('end', () => { 
+                    clearTimer(); stopAntiAFK(bot); 
+                    bot.connected = false; bot.connecting = false; 
+                    if(!bot.lastStatus) bot.lastStatus = "تم قطع الاتصال بالسيرفر";
+                    saveData();
+                });
                 bot.client.on('death', () => bot.deathCount++);
             } catch (err) {
-                clearTimer(); stopAntiAFK(bot); console.log("[Java Critical Error Caught]");
+                clearTimer(); stopAntiAFK(bot); 
                 bot.connected = false; bot.connecting = false;
+                bot.lastStatus = 'خطأ داخلي: ' + err.message;
             }
         }
     } else if (action === 'stop') {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout); 
         stopAntiAFK(bot); 
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        bot.connected = false; bot.connecting = false; bot.startTime = null;
+        bot.connected = false; bot.connecting = false; bot.startTime = null; bot.lastStatus = 'تم الإيقاف يدوياً';
+        saveData();
     } else if (action === 'delete') {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout);
         stopAntiAFK(bot);
@@ -385,4 +397,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running - Edit Feature Added!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running with Error Tracker!'));
