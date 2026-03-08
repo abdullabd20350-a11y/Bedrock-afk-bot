@@ -35,6 +35,8 @@ function saveData() {
         let b = data.activeBots[name];
         cleanData.activeBots[name] = {
             host: b.host, port: b.port, type: b.type, owner: b.owner,
+            version: b.version, // تم إضافة حفظ الإصدار
+            botName: b.botName, // تم إضافة حفظ الاسم
             connected: b.connected, connecting: b.connecting,
             pos: b.pos, deathCount: b.deathCount, startTime: b.startTime,
             lastStatus: b.lastStatus 
@@ -141,8 +143,8 @@ app.get('/', checkAuth, (req, res) => {
     const isAr = lang === 'ar';
     let myBots = Object.keys(data.activeBots).filter(n => data.activeBots[n].owner === req.session.user);
     
-    let botCards = myBots.map(name => {
-        const b = data.activeBots[name];
+    let botCards = myBots.map(id => {
+        const b = data.activeBots[id];
         let statusClass = b.connecting ? 'status-connecting' : (b.connected ? 'status-online' : 'status-offline');
         let statusText = b.connecting ? (isAr ? 'جاري الانضمام...' : 'Connecting...') : (b.connected ? (isAr ? 'متصل' : 'Online') : (isAr ? 'متوقف' : 'Stopped'));
         let isBusy = b.connected || b.connecting;
@@ -150,7 +152,7 @@ app.get('/', checkAuth, (req, res) => {
         return `
         <div class="bot-card" style="border-${isAr?'right':'left'}: 6px solid ${b.connected?'#28a745':(b.connecting?'#ffc107':'#dc3545')};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h3 style="margin:0;">🤖 ${name} <small>(${b.type})</small></h3>
+                <h3 style="margin:0;">🤖 ${b.botName} <small>(${b.type}${b.version ? ` - ${b.version}` : ''})</small></h3>
                 <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
             
@@ -166,25 +168,34 @@ app.get('/', checkAuth, (req, res) => {
                     </div>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                    <span>⏱️ ${isAr?'مدة الاتصال':'Uptime'}: <b id="timer-${name}" data-start="${b.startTime || ''}" style="color:#1a73e8;">---</b></span>
+                    <span>⏱️ ${isAr?'مدة الاتصال':'Uptime'}: <b id="timer-${id}" data-start="${b.startTime || ''}" style="color:#1a73e8;">---</b></span>
                     <span>💀 ${isAr?'الوفيات':'Deaths'}: <b>${b.deathCount}</b></span>
                 </div>
             </div>
 
-            <div id="edit-${name}" class="edit-panel">
-                <form action="/edit" method="POST" style="display:flex; gap:10px; margin:0; align-items:center;">
-                    <input type="hidden" name="botName" value="${name}">
-                    <select name="type" style="margin:0; width:30%;"><option value="bedrock" ${b.type==='bedrock'?'selected':''}>Bedrock</option><option value="java" ${b.type==='java'?'selected':''}>Java</option></select>
-                    <input name="address" value="${b.host}:${b.port}" style="margin:0; width:50%;" required>
-                    <button class="btn btn-start" style="width:20%; padding:10px;">${isAr?'حفظ':'Save'}</button>
+            <div id="edit-${id}" class="edit-panel">
+                <form action="/edit" method="POST" style="display:flex; flex-direction:column; gap:10px; margin:0;">
+                    <input type="hidden" name="id" value="${id}">
+                    <div style="display:flex; gap:10px;">
+                        <input name="botName" value="${b.botName}" placeholder="${isAr?'اسم البوت':'Bot Name'}" style="margin:0; flex:1;" required>
+                        <select name="type" id="type-${id}" onchange="toggleVersionEdit('${id}')" style="margin:0; flex:1;">
+                            <option value="bedrock" ${b.type==='bedrock'?'selected':''}>Bedrock</option>
+                            <option value="java" ${b.type==='java'?'selected':''}>Java</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <input name="address" value="${b.host}:${b.port}" placeholder="IP:Port" style="margin:0; flex:2;" required>
+                        <input name="version" id="ver-${id}" value="${b.version || ''}" placeholder="${isAr?'الإصدار (مثال: 1.20.4)':'Version'}" style="margin:0; flex:1; display:${b.type==='java'?'block':'none'};">
+                        <button class="btn btn-start" style="flex:1; padding:10px;">${isAr?'حفظ':'Save'}</button>
+                    </div>
                 </form>
             </div>
 
             <div style="margin-top:15px; display:flex; gap:10px;">
-                <button onclick="ctl('${name}','start')" class="btn btn-start" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
-                <button onclick="ctl('${name}','stop')" class="btn btn-stop" style="flex:1;" ${!isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
-                <button onclick="toggleEdit('${name}')" class="btn btn-edit" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تعديل':'Edit'}</button>
-                <button onclick="ctl('${name}','delete')" class="btn btn-delete" style="flex:1;">${isAr?'حذف':'Delete'}</button>
+                <button onclick="ctl('${id}','start')" class="btn btn-start" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تشغيل':'Start'}</button>
+                <button onclick="ctl('${id}','stop')" class="btn btn-stop" style="flex:1;" ${!isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'إيقاف':'Stop'}</button>
+                <button onclick="toggleEdit('${id}')" class="btn btn-edit" style="flex:1;" ${isBusy ? 'disabled style="opacity:0.5"' : ''}>${isAr?'تعديل':'Edit'}</button>
+                <button onclick="ctl('${id}','delete')" class="btn btn-delete" style="flex:1;">${isAr?'حذف':'Delete'}</button>
             </div>
         </div>`;
     }).join('');
@@ -199,23 +210,34 @@ app.get('/', checkAuth, (req, res) => {
             </div>
         </div>
         
-        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0;">
-            <select name="type" id="tp"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
+        <form action="/add" method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:20px 0; background:#f9f9f9; padding:15px; border-radius:15px;">
+            <select name="type" id="tp" onchange="toggleVersionAdd()"><option value="bedrock">Bedrock</option><option value="java">Java</option></select>
             <input name="botName" placeholder="${isAr?'اسم البوت':'Bot Name'}" required>
             <input name="address" placeholder="${isAr?'الآيبي (مثال: server.aternos.me:12345)':'IP:Port'}" required style="grid-column:span 2;">
+            <input name="version" id="add-version" placeholder="${isAr?'الإصدار (للجافا فقط، مثال: 1.20.4)':'Java Version (e.g. 1.20.4)'}" style="grid-column:span 2; display:none;">
             <button class="btn btn-start" style="grid-column:span 2; background:#1a73e8;">${isAr?'إضافة':'Add'}</button>
         </form>
 
         <div id="botList">${botCards || '<p style="text-align:center; color:#888;">لا توجد بوتات حالياً</p>'}</div>
     </div>
     <script>
-        function toggleEdit(name) {
-            const el = document.getElementById('edit-' + name);
+        function toggleEdit(id) {
+            const el = document.getElementById('edit-' + id);
             el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
         }
+        function toggleVersionEdit(id) {
+            const type = document.getElementById('type-' + id).value;
+            document.getElementById('ver-' + id).style.display = type === 'java' ? 'block' : 'none';
+        }
+        function toggleVersionAdd() {
+            const type = document.getElementById('tp').value;
+            document.getElementById('add-version').style.display = type === 'java' ? 'block' : 'none';
+        }
 
-        function ctl(n,a){ 
-            fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,action:a})})
+        // تم إصلاح زر الحذف هنا
+        function ctl(id,a){ 
+            if(a === 'delete' && !confirm('${isAr?'هل أنت متأكد من الحذف؟':'Are you sure you want to delete?'}')) return;
+            fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,action:a})})
             .then(()=>setTimeout(()=>location.reload(), 500));
         }
         
@@ -263,8 +285,8 @@ app.post('/auth-login', (req, res) => {
 });
 
 app.post('/add', checkAuth, (req, res) => {
-    const { type, address, botName } = req.body;
-    if (data.activeBots[botName]) return res.send("<script>alert('⚠️ اسم البوت موجود مسبقاً'); window.location='/';</script>");
+    const { type, address, botName, version } = req.body;
+    const id = Date.now().toString(); // إنشاء ID فريد لكل بوت لتسهيل تعديل الاسم
 
     let host = address.trim();
     let port = type === 'bedrock' ? 19132 : 25565;
@@ -275,14 +297,14 @@ app.post('/add', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    data.activeBots[botName] = { host, port, type, owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null, lastStatus: '' };
+    data.activeBots[id] = { id, botName, host, port, type, version: (type==='java'?version.trim():''), owner: req.session.user, connected: false, connecting: false, pos: {x:0,y:0,z:0}, deathCount: 0, startTime: null, lastStatus: '' };
     saveData(); 
     res.redirect('/');
 });
 
 app.post('/edit', checkAuth, (req, res) => {
-    const { botName, type, address } = req.body;
-    const bot = data.activeBots[botName];
+    const { id, botName, type, address, version } = req.body;
+    const bot = data.activeBots[id];
     if (!bot || bot.connected || bot.connecting) return res.redirect('/');
 
     let host = address.trim();
@@ -294,33 +316,39 @@ app.post('/edit', checkAuth, (req, res) => {
         port = parseInt(parts[1].trim());
     }
 
-    bot.type = type; bot.host = host; bot.port = port; bot.lastStatus = '';
+    bot.botName = botName;
+    bot.type = type; 
+    bot.host = host; 
+    bot.port = port; 
+    bot.version = type === 'java' ? version.trim() : '';
+    bot.lastStatus = '';
     saveData();
     res.redirect('/');
 });
 
 app.post('/control', checkAuth, (req, res) => {
-    const { name, action } = req.body;
-    const bot = data.activeBots[name];
+    const { id, action } = req.body;
+    const bot = data.activeBots[id];
     
+    if(!bot) return res.sendStatus(404);
+
     if (action === 'start' && !bot.connected && !bot.connecting) {
         bot.connecting = true;
         bot.lastStatus = ''; 
         
-        // زيادة مهلة الانتظار إلى 90 ثانية لتناسب بطء سيرفرات Aternos
         bot.connectTimeout = setTimeout(() => {
             if (bot.connecting) {
                 bot.connecting = false; bot.connected = false;
-                bot.lastStatus = 'انتهى الوقت (Timeout) - استغرق السيرفر أكثر من 90 ثانية للرد';
+                bot.lastStatus = 'انتهى الوقت (Timeout) - تأكد من تشغيل السيرفر أو صحة الإصدار';
                 if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
                 saveData();
             }
-        }, 90000); 
+        }, 45000); 
 
         const clearTimer = () => { if(bot.connectTimeout) clearTimeout(bot.connectTimeout); };
 
         if (bot.type === 'bedrock') {
-            bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: name, offline: true });
+            bot.client = bedrock.createClient({ host: bot.host, port: bot.port, username: bot.botName, offline: true });
             
             bot.client.on('spawn', () => { 
                 clearTimer();
@@ -333,14 +361,13 @@ app.post('/control', checkAuth, (req, res) => {
             
         } else {
             try {
+                // الجافا الآن يعمل بالإصدار المكتوب يدوياً لتجنب تعليق Mineflayer
                 bot.client = mineflayer.createBot({ 
                     host: bot.host, 
                     port: bot.port, 
-                    username: name, 
+                    username: bot.botName, 
                     auth: 'offline',
-                    version: false,
-                    keepAlive: true, // إرسال نبضات مستمرة لمنع السيرفر من قطع الاتصال
-                    checkTimeoutInterval: 120000 // السماح لـ mineflayer بمهلة داخلية تصل لدقيقتين
+                    version: bot.version ? bot.version : false // إذا تُرك فارغاً سيحاول تلقائياً
                 });
                 
                 bot.client.on('spawn', () => { 
@@ -387,8 +414,8 @@ app.post('/control', checkAuth, (req, res) => {
         if(bot.connectTimeout) clearTimeout(bot.connectTimeout);
         stopAntiAFK(bot);
         if (bot.client) { bot.type === 'bedrock' ? bot.client.disconnect() : bot.client.quit(); }
-        delete data.activeBots[name];
-        saveData();
+        delete data.activeBots[id]; // إصلاح مسح البوت من الذاكرة
+        saveData(); // حفظ التغيير في الملف
     }
     res.sendStatus(200);
 });
@@ -396,4 +423,4 @@ app.post('/control', checkAuth, (req, res) => {
 app.get('/set-lang', (req, res) => { req.session.lang = req.query.l; res.redirect('/'); });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
-app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running with Extended Timeouts!'));
+app.listen(process.env.PORT || 10000, () => console.log('🚀 Dashboard is running with Manual Version & Fixes!'));
