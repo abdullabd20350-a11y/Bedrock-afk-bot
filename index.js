@@ -45,7 +45,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال الآمن (بدون حركة وهمية)
+// 2. محرك الاتصال (إنهاء حالة الشبح)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -63,48 +63,76 @@ function connectBot(id) {
 
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
-            // طلب تحميل العالم حول البوت حتى لا يسقط في الفراغ
-            client.queue('request_chunk_radius', { chunk_radius: 4 });
+            if (pkt.player_position) b.pos = pkt.player_position;
+            // إجبار السيرفر على تحميل الخريطة
+            client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
         client.on('spawn', () => {
             b.connected = true;
             b.connecting = false;
             b.retryCount = 0; 
-            if (client.startGameData) b.pos = client.startGameData.player_position;
             saveDB();
 
-            // نظام الرسبون التلقائي الحقيقي
-            client.on('respawn', () => {
-                client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
+            // 🔥 الحل الجذري 1: إخبار السيرفر بإنهاء شاشة التحميل
+            client.queue('set_local_player_as_initialized', {
+                runtime_entity_id: b.runtimeId
             });
 
-            // تحديث الإحداثيات فقط إذا حركه السيرفر (مثلاً إذا ضربته أنت أو دفعه الماء)
+            let tickCount = 0n;
+
+            // 🔥 الحل الجذري 2: محاكاة نبض اللعبة (Tick) كل 50 ملي ثانية
+            if (b.physicsInterval) clearInterval(b.physicsInterval);
+            b.physicsInterval = setInterval(() => {
+                if (!b.connected) return clearInterval(b.physicsInterval);
+                try {
+                    tickCount++;
+                    // هذه الحزمة هي التي تثبت للسيرفر أن هذا لاعب حقيقي
+                    client.queue('player_auth_input', {
+                        pitch: 0,
+                        yaw: 0,
+                        position: b.pos,
+                        move_vector: { x: 0, z: 0 },
+                        head_yaw: 0,
+                        input_data: 0n,
+                        play_mode: 0,
+                        interaction_model: 0,
+                        gaze_direction: { x: 0, y: 0, z: 1 },
+                        tick: tickCount,
+                        delta: { x: 0, y: 0, z: 0 }
+                    });
+                } catch (e) {}
+            }, 50);
+
+            // التقاط الإحداثيات الحقيقية بعد السقوط من السماء
             client.on('move_player', (pkt) => {
                 if (pkt.runtime_entity_id === b.runtimeId) {
                     b.pos = pkt.position;
                 }
             });
 
-            // محرك الـ Anti-AFK الآمن: (الضرب في الهواء فقط)
+            // Anti-AFK آمن (تأرجح اليد فقط)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
                 try {
-                    // إرسال حزمة (الضربة باليد) لإثبات النشاط للسيرفر بدون تغيير المكان
                     client.queue('animate', {
-                        action_id: 1, // 1 = Swing Arm (تحريك اليد)
+                        action_id: 1, 
                         runtime_entity_id: b.runtimeId
                     });
                 } catch (e) {}
-            }, 30000); // ضرب الهواء كل 30 ثانية
+            }, 30000);
 
-            // تجديد الاتصال كل 20 دقيقة
+            // التجديد التلقائي
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
                 b.isRelogging = true; 
                 client.disconnect();
             }, 20 * 60 * 1000); 
+        });
+
+        client.on('respawn', () => {
+            client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
         });
 
         client.on('error', (err) => { handleDisconnect(id); });
@@ -115,11 +143,11 @@ function connectBot(id) {
     }
 }
 
-// دالة معالجة الفصل والمحاولات
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
 
+    if (b.physicsInterval) clearInterval(b.physicsInterval);
     if (b.moveInterval) clearInterval(b.moveInterval);
     if (b.reloginTimer) clearTimeout(b.reloginTimer);
     if (activeClients[id]) delete activeClients[id];
@@ -179,12 +207,12 @@ const ui = (content) => `
             body: JSON.stringify({id, action})
         }).then(() => setTimeout(() => location.reload(), 800));
     }
-    setInterval(() => location.reload(), 25000); 
+    setInterval(() => location.reload(), 5000); 
 </script></body></html>`;
 
 app.get('/', (req, res) => {
     let botList = Object.values(data.bots).map(b => {
-        let statusText = b.connecting ? 'جاري الاتصال أو المحاولة...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
+        let statusText = b.connecting ? 'جاري الاتصال...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
         return `
         <div class="bot-card ${b.connected ? 'online' : ''}">
             <div>
@@ -202,7 +230,7 @@ app.get('/', (req, res) => {
     }).join('');
 
     res.send(ui(`
-        <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو (السرفايفل)</h1>
+        <h1 style="color: #2c3e50;">🚀 مدير بوتات كينجا برو (إصدار السرفايفل الحقيقي)</h1>
         <form action="/add" method="POST" style="background:#f1f2f6; padding:20px; border-radius:15px; margin-bottom:20px; display: flex; flex-wrap: wrap; justify-content: center;">
             <input name="botName" placeholder="اسم البوت" required>
             <input name="host" placeholder="IP السيرفر" required>
