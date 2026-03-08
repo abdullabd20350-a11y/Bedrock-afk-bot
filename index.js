@@ -25,7 +25,8 @@ if (fs.existsSync(dbPath)) {
             data.bots[id].connected = false;
             data.bots[id].connecting = false;
             data.bots[id].shouldRun = false; 
-            data.bots[id].retryCount = 0;    
+            data.bots[id].retryCount = 0;
+            data.bots[id].verifyLink = null; // مسار جديد لحفظ رابط التحقق
         }
     } catch (e) { data = { bots: {} }; }
 }
@@ -36,7 +37,8 @@ function saveDB() {
         let b = data.bots[id];
         toSave.bots[id] = {
             id: b.id, host: b.host, port: b.port, botName: b.botName,
-            pos: b.pos, connected: b.connected, connecting: b.connecting
+            pos: b.pos, connected: b.connected, connecting: b.connecting,
+            verifyLink: b.verifyLink // حفظ الرابط إذا وجد
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(toSave, null, 2));
@@ -45,7 +47,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال (السرفايفل الصارم)
+// 2. محرك الاتصال (مع رادار الشات)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -53,6 +55,7 @@ function connectBot(id) {
 
     b.connecting = true;
     b.connected = false;
+    b.verifyLink = null; // تصفير الرابط القديم
     saveDB();
 
     try {
@@ -66,17 +69,25 @@ function connectBot(id) {
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
             if (pkt.player_position) b.pos = pkt.player_position;
-            // طلب تحميل الخريطة المحيطة لتجنب السقوط
-            client.queue('request_chunk_radius', { chunk_radius: 3 });
+            client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
-        // التزامن مع سيرفر السرفايفل (إثبات الوجود)
-        client.on('tick_sync', (pkt) => {
-            if (b.connected) {
-                client.queue('tick_sync', {
-                    request_time: pkt.request_time,
-                    response_time: BigInt(Date.now())
-                });
+        // 🔥 رادار الشات (التقاط رابط FalixNodes)
+        client.on('text', (packet) => {
+            const msg = packet.message;
+            if (msg && msg.includes('falixnodes.net/verify')) {
+                // استخراج الرابط من الشات باستخدام الذكاء البرمجي (Regex)
+                const match = msg.match(/(https:\/\/client\.falixnodes\.net\/verify\?t=[a-zA-Z0-9]+)/);
+                if (match) {
+                    b.verifyLink = match[1]; // حفظ الرابط
+                    console.log(`[تحذير!] مطلوب تحقق للبوت ${b.botName}: ${b.verifyLink}`);
+                    saveDB();
+                }
+            }
+            // إذا شكرك السيرفر على التحقق، نخفي الزر
+            if (msg && msg.includes('Thanks for verifying')) {
+                b.verifyLink = null;
+                saveDB();
             }
         });
 
@@ -86,41 +97,28 @@ function connectBot(id) {
             b.retryCount = 0; 
             saveDB();
 
-            // إعلان انتهاء التحميل للسيرفر
-            client.queue('set_local_player_as_initialized', {
-                runtime_entity_id: b.runtimeId
-            });
+            client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
 
-            // محاكاة نبض اللعبة لإثبات أن اللاعب حقيقي (وليس شبحاً)
             if (b.physicsInterval) clearInterval(b.physicsInterval);
             b.physicsInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.physicsInterval);
                 try {
                     tickCount++;
                     client.queue('player_auth_input', {
-                        pitch: 0, yaw: 0,
-                        position: b.pos, // إرسال نفس إحداثيات السيرفر (لا نتدخل فيها)
-                        move_vector: { x: 0, z: 0 }, head_yaw: 0, input_data: 0n,
-                        play_mode: 0, interaction_model: 0,
-                        gaze_direction: { x: 0, y: 0, z: 1 },
-                        tick: tickCount, delta: { x: 0, y: 0, z: 0 }
+                        pitch: 0, yaw: 0, position: b.pos, move_vector: { x: 0, z: 0 }, head_yaw: 0, input_data: 0n,
+                        play_mode: 0, interaction_model: 0, gaze_direction: { x: 0, y: 0, z: 1 }, tick: tickCount, delta: { x: 0, y: 0, z: 0 }
                     });
                 } catch (e) {}
             }, 50);
 
-            // تأرجح اليد لمنع الـ AFK (أضمن طريقة)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
                 try {
-                    client.queue('animate', {
-                        action_id: 1, 
-                        runtime_entity_id: b.runtimeId
-                    });
+                    client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId });
                 } catch (e) {}
             }, 30000);
 
-            // تجديد الاتصال كل 20 دقيقة
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
                 b.isRelogging = true; 
@@ -128,25 +126,8 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        // 🔥 معالجة النزول للأرض وإصلاح Y:32769
-        client.on('respawn', (pkt) => {
-            if (pkt.state === 1 || pkt.state === 0) {
-                b.pos = pkt.position;
-                saveDB();
-                client.queue('respawn', {
-                    runtime_entity_id: b.runtimeId,
-                    state: 2, // أنا جاهز وعلى الأرض
-                    position: pkt.position
-                });
-            }
-        });
-
-        // السيرفر هو من يحركنا (الجاذبية، الدفع، الضرب)
-        client.on('move_player', (pkt) => {
-            if (pkt.runtime_entity_id === b.runtimeId) {
-                b.pos = pkt.position;
-                saveDB();
-            }
+        client.on('respawn', () => {
+            client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 0, position: { x: 0, y: 0, z: 0 } });
         });
 
         client.on('error', (err) => { handleDisconnect(id); });
@@ -194,7 +175,7 @@ function handleDisconnect(id) {
 }
 
 // ==========================================
-// 3. الواجهة (HTML)
+// 3. الواجهة (HTML) مع زر التحقق
 // ==========================================
 const ui = (content) => `
 <html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -202,17 +183,19 @@ const ui = (content) => `
 <style>
     body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; text-align: center; }
     .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; text-align: right; border-right: 6px solid #dc3545; }
+    .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; text-align: right; border-right: 6px solid #dc3545; position: relative; }
     .bot-card.online { border-right-color: #28a745; }
     .status-on { color: #28a745; font-weight: bold; background: #d4edda; padding: 5px 10px; border-radius: 10px; }
     .status-off { color: #dc3545; font-weight: bold; background: #f8d7da; padding: 5px 10px; border-radius: 10px; }
-    .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin: 2px; transition: 0.2s; }
+    .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin: 2px; transition: 0.2s; text-decoration: none; display: inline-block; }
     .btn-start { background: #28a745; color: white; }
     .btn-stop { background: #ffc107; color: #222; }
     .btn-del { background: #dc3545; color: white; }
     .btn-refresh { background: #17a2b8; color: white; margin-bottom: 20px; }
+    .btn-verify { background: #e74c3c; color: white; animation: blink 1s infinite; width: 100%; display: block; margin-top: 10px; text-align: center; font-size: 1.1em; }
+    @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     input { padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin: 5px; width: 100%; max-width: 180px; }
-    .xyz { background: #2c3e50; color: #34e7e4; padding: 10px; border-radius: 10px; font-family: 'Courier New', monospace; font-weight: bold; }
+    .xyz { background: #2c3e50; color: #34e7e4; padding: 10px; border-radius: 10px; font-family: 'Courier New', monospace; font-weight: bold; text-align: left; direction: ltr; }
 </style></head><body><div class="container">${content}</div>
 <script>
     function ctl(id, action) {
@@ -227,14 +210,17 @@ const ui = (content) => `
 app.get('/', (req, res) => {
     let botList = Object.values(data.bots).map(b => {
         let statusText = b.connecting ? 'جاري الاتصال...' : (b.connected ? 'متصل ✅' : 'متوقف ❌');
+        let verifyBtn = b.verifyLink ? `<a href="${b.verifyLink}" target="_blank" class="btn btn-verify" onclick="setTimeout(()=>location.reload(), 5000)">⚠️ السيرفر يطلب التحقق! اضغط هنا ⚠️</a>` : '';
+        
         return `
         <div class="bot-card ${b.connected ? 'online' : ''}">
-            <div>
+            <div style="flex: 1;">
                 <strong>🤖 ${b.botName}</strong> <br>
                 <small style="color: #666;">${b.host}:${b.port}</small> <br><br>
                 <span class="${b.connected ? 'status-on' : 'status-off'}">${statusText}</span>
+                ${verifyBtn}
             </div>
-            <div class="xyz">X: ${b.pos.x.toFixed(1)}<br>Y: ${b.pos.y.toFixed(1)}<br>Z: ${b.pos.z.toFixed(1)}</div>
+            <div class="xyz" style="margin: 0 15px;">X: ${b.pos.x.toFixed(1)}<br>Y: ${b.pos.y.toFixed(1)}<br>Z: ${b.pos.z.toFixed(1)}</div>
             <div>
                 <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled opacity:0.5':''}>تشغيل</button>
                 <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled opacity:0.5':''}>إيقاف</button>
@@ -253,7 +239,7 @@ app.get('/', (req, res) => {
             <button class="btn btn-start">إضافة بوت</button>
         </form>
         
-        <button class="btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة</button>
+        <button class="btn btn-refresh" onclick="location.reload()">🔄 تحديث الإحداثيات والحالة</button>
         
         <div id="botList">${botList || '<p style="color: #999;">لا توجد بوتات مضافة حالياً</p>'}</div>
     `));
@@ -266,7 +252,7 @@ app.post('/add', (req, res) => {
     const id = Date.now().toString();
     data.bots[id] = { 
         id, botName: req.body.botName, host: req.body.host, port: parseInt(req.body.port), 
-        pos: { x: 0, y: 0, z: 0 }, connected: false, connecting: false, shouldRun: false, retryCount: 0 
+        pos: { x: 0, y: 0, z: 0 }, connected: false, connecting: false, shouldRun: false, retryCount: 0, verifyLink: null 
     };
     saveDB(); res.redirect('/');
 });
@@ -279,10 +265,12 @@ app.post('/control', (req, res) => {
     if (action === 'start' && !b.shouldRun) {
         b.shouldRun = true;
         b.retryCount = 0;
+        b.verifyLink = null;
         connectBot(id);
     } else if (action === 'stop' || action === 'delete') {
         b.shouldRun = false;
         b.isRelogging = false;
+        b.verifyLink = null;
         if (activeClients[id]) activeClients[id].disconnect();
         
         if (action === 'delete') {
