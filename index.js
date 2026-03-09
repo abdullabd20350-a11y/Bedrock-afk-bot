@@ -52,7 +52,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال (تم إصلاح التعليق)
+// 2. محرك الاتصال (النسخة المستقرة والخفيفة)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -68,7 +68,6 @@ function connectBot(id) {
     console.log(`[${b.botName}] جاري محاولة الاتصال بـ ${b.host}:${b.port}...`);
 
     try {
-        // تنظيف أي اتصال قديم معلق في الذاكرة قبل بدء اتصال جديد
         if (activeClients[id]) {
             try { activeClients[id].disconnect(); } catch(e) {}
             delete activeClients[id];
@@ -79,7 +78,6 @@ function connectBot(id) {
         });
         const client = activeClients[id];
 
-        let tickCount = 0n;
         let isSpawned = false;
 
         client.on('start_game', (pkt) => { 
@@ -88,12 +86,14 @@ function connectBot(id) {
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
+        // التقاط رابط التحقق
         client.on('text', (packet) => {
             const msg = packet.message;
             if (msg && msg.includes('falixnodes.net/verify')) {
                 const match = msg.match(/(https:\/\/client\.falixnodes\.net\/verify\?t=[a-zA-Z0-9]+)/);
                 if (match) {
                     b.verifyLink = match[1]; 
+                    console.log(`[تحذير!] مطلوب تحقق للبوت ${b.botName}: ${b.verifyLink}`);
                     saveDB();
                 }
             }
@@ -113,24 +113,12 @@ function connectBot(id) {
 
             client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
 
-            if (b.physicsInterval) clearInterval(b.physicsInterval);
-            b.physicsInterval = setInterval(() => {
-                if (!b.connected || !isSpawned) return clearInterval(b.physicsInterval);
-                try {
-                    tickCount++;
-                    client.queue('player_auth_input', {
-                        pitch: 0, yaw: 0, position: b.pos, move_vector: { x: 0, z: 0 }, 
-                        head_yaw: 0, input_data: 0n, play_mode: 0, interaction_model: 0, 
-                        gaze_direction: { x: 0, y: 0, z: 1 }, tick: tickCount, delta: { x: 0, y: 0, z: 0 }
-                    });
-                } catch (e) {}
-            }, 50);
-
+            // حركة آمنة تماماً لمنع الـ AFK
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected || !isSpawned) return clearInterval(b.moveInterval);
                 try {
-                    client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId });
+                    client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId }); // تحريك اليد
                 } catch (e) {}
             }, 30000);
 
@@ -141,6 +129,7 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
+        // قراءة الهيل والجوع
         client.on('update_attributes', (pkt) => {
             if (pkt.runtime_entity_id === b.runtimeId) {
                 let updated = false;
@@ -165,7 +154,6 @@ function connectBot(id) {
             client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 2, position: b.pos });
         });
 
-        // 🔥 نظام طباعة الأخطاء لمعرفة سبب الطرد 🔥
         client.on('disconnect', (pkt) => {
             console.log(`[${b.botName}] طُرد من السيرفر. السبب:`, pkt.reason || "غير معروف");
             handleDisconnect(id);
@@ -184,18 +172,17 @@ function connectBot(id) {
     }
 }
 
-// 🔥 نظام التنظيف العميق 🔥
+// تنظيف عميق
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
 
-    if (b.physicsInterval) clearInterval(b.physicsInterval);
     if (b.moveInterval) clearInterval(b.moveInterval);
     if (b.reloginTimer) clearTimeout(b.reloginTimer);
     
     if (activeClients[id]) {
         try { activeClients[id].disconnect(); } catch(e) {}
-        delete activeClients[id]; // مسح السلك بالكامل من الذاكرة
+        delete activeClients[id]; 
     }
 
     b.connected = false;
@@ -244,7 +231,7 @@ const ui = (content) => `
     .btn-start { background: #28a745; color: white; }
     .btn-stop { background: #ffc107; color: #222; }
     .btn-del { background: #dc3545; color: white; }
-    .btn-refresh { background: #17a2b8; color: white; margin-bottom: 20px; font-size: 1.1em;}
+    .btn-refresh { background: #17a2b8; color: white; margin-bottom: 20px; font-size: 1.1em; padding: 12px 25px;}
     .btn-verify { background: #e74c3c; color: white; animation: blink 1s infinite; width: 100%; display: block; margin-top: 10px; text-align: center; font-size: 1.1em; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     input { padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin: 5px; width: 100%; max-width: 180px; }
@@ -333,7 +320,6 @@ app.post('/control', (req, res) => {
         b.isRelogging = false;
         b.verifyLink = null;
         
-        // تنظيف عميق عند الضغط يدوياً
         if (activeClients[id]) {
             try { activeClients[id].disconnect(); } catch(e) {}
             delete activeClients[id];
