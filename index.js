@@ -30,7 +30,6 @@ if (fs.existsSync(dbPath)) {
             data.bots[id].shouldRun = false; 
             data.bots[id].retryCount = 0;
             data.bots[id].verifyLink = null; 
-            // تهيئة الصحة والجوع إذا لم تكن موجودة
             if (data.bots[id].health === undefined) data.bots[id].health = 20;
             if (data.bots[id].hunger === undefined) data.bots[id].hunger = 20;
         }
@@ -44,9 +43,7 @@ function saveDB() {
         toSave.bots[id] = {
             id: b.id, host: b.host, port: b.port, botName: b.botName,
             pos: b.pos, connected: b.connected, connecting: b.connecting,
-            verifyLink: b.verifyLink,
-            health: b.health, // حفظ الهيل
-            hunger: b.hunger  // حفظ الجوع
+            verifyLink: b.verifyLink, health: b.health, hunger: b.hunger
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(toSave, null, 2));
@@ -55,7 +52,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال 
+// 2. محرك الاتصال (تم إصلاح التعليق)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -68,7 +65,15 @@ function connectBot(id) {
     b.hunger = 20;
     saveDB();
 
+    console.log(`[${b.botName}] جاري محاولة الاتصال بـ ${b.host}:${b.port}...`);
+
     try {
+        // تنظيف أي اتصال قديم معلق في الذاكرة قبل بدء اتصال جديد
+        if (activeClients[id]) {
+            try { activeClients[id].disconnect(); } catch(e) {}
+            delete activeClients[id];
+        }
+
         activeClients[id] = bedrock.createClient({ 
             host: b.host, port: b.port, username: b.botName, offline: true 
         });
@@ -79,20 +84,16 @@ function connectBot(id) {
 
         client.on('start_game', (pkt) => { 
             b.runtimeId = pkt.runtime_entity_id; 
-            if (pkt.player_position) {
-                b.pos = pkt.player_position;
-            }
+            if (pkt.player_position) b.pos = pkt.player_position;
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
-        // التقاط رابط التحقق
         client.on('text', (packet) => {
             const msg = packet.message;
             if (msg && msg.includes('falixnodes.net/verify')) {
                 const match = msg.match(/(https:\/\/client\.falixnodes\.net\/verify\?t=[a-zA-Z0-9]+)/);
                 if (match) {
                     b.verifyLink = match[1]; 
-                    console.log(`[تحذير!] مطلوب تحقق للبوت ${b.botName}: ${b.verifyLink}`);
                     saveDB();
                 }
             }
@@ -103,6 +104,7 @@ function connectBot(id) {
         });
 
         client.on('spawn', () => {
+            console.log(`[${b.botName}] دخل السيرفر بنجاح!`);
             b.connected = true;
             b.connecting = false;
             b.retryCount = 0; 
@@ -139,18 +141,12 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        // 🔥 التقاط معلومات الهيل والجوع من السيرفر 🔥
         client.on('update_attributes', (pkt) => {
             if (pkt.runtime_entity_id === b.runtimeId) {
                 let updated = false;
                 for (const attr of pkt.attributes) {
-                    if (attr.name === 'minecraft:health') {
-                        b.health = attr.current;
-                        updated = true;
-                    } else if (attr.name === 'minecraft:player.hunger') {
-                        b.hunger = attr.current;
-                        updated = true;
-                    }
+                    if (attr.name === 'minecraft:health') { b.health = attr.current; updated = true; } 
+                    else if (attr.name === 'minecraft:player.hunger') { b.hunger = attr.current; updated = true; }
                 }
                 if (updated) saveDB();
             }
@@ -169,14 +165,26 @@ function connectBot(id) {
             client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 2, position: b.pos });
         });
 
-        client.on('error', (err) => { handleDisconnect(id); });
+        // 🔥 نظام طباعة الأخطاء لمعرفة سبب الطرد 🔥
+        client.on('disconnect', (pkt) => {
+            console.log(`[${b.botName}] طُرد من السيرفر. السبب:`, pkt.reason || "غير معروف");
+            handleDisconnect(id);
+        });
+
+        client.on('error', (err) => { 
+            console.log(`[${b.botName}] خطأ في الاتصال:`, err.message);
+            handleDisconnect(id); 
+        });
+        
         client.on('close', () => { handleDisconnect(id); });
 
     } catch (e) {
+        console.log(`[${b.botName}] خطأ فادح:`, e.message);
         handleDisconnect(id);
     }
 }
 
+// 🔥 نظام التنظيف العميق 🔥
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
@@ -184,7 +192,11 @@ function handleDisconnect(id) {
     if (b.physicsInterval) clearInterval(b.physicsInterval);
     if (b.moveInterval) clearInterval(b.moveInterval);
     if (b.reloginTimer) clearTimeout(b.reloginTimer);
-    if (activeClients[id]) delete activeClients[id];
+    
+    if (activeClients[id]) {
+        try { activeClients[id].disconnect(); } catch(e) {}
+        delete activeClients[id]; // مسح السلك بالكامل من الذاكرة
+    }
 
     b.connected = false;
     b.connecting = false;
@@ -210,11 +222,12 @@ function handleDisconnect(id) {
         b.shouldRun = false; 
         b.retryCount = 0;
         saveDB();
+        console.log(`[${b.botName}] توقف البوت نهائياً بعد فشل المحاولات.`);
     }
 }
 
 // ==========================================
-// 3. الواجهة (HTML) مع الهيل والجوع
+// 3. الواجهة (HTML)
 // ==========================================
 const ui = (content) => `
 <html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -224,7 +237,7 @@ const ui = (content) => `
     .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
     .bot-card { background: #f8f9fa; border-radius: 15px; padding: 15px; margin: 15px 0; border: 1px solid #eee; display: flex; flex-direction: column; text-align: right; border-right: 6px solid #dc3545; position: relative; }
     .bot-card.online { border-right-color: #28a745; }
-    .top-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+    .top-row { display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 10px;}
     .status-on { color: #28a745; font-weight: bold; background: #d4edda; padding: 5px 10px; border-radius: 10px; }
     .status-off { color: #dc3545; font-weight: bold; background: #f8d7da; padding: 5px 10px; border-radius: 10px; }
     .btn { padding: 10px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; margin: 2px; transition: 0.2s; text-decoration: none; display: inline-block; }
@@ -319,7 +332,12 @@ app.post('/control', (req, res) => {
         b.shouldRun = false;
         b.isRelogging = false;
         b.verifyLink = null;
-        if (activeClients[id]) activeClients[id].disconnect();
+        
+        // تنظيف عميق عند الضغط يدوياً
+        if (activeClients[id]) {
+            try { activeClients[id].disconnect(); } catch(e) {}
+            delete activeClients[id];
+        }
         
         if (action === 'delete') {
             delete data.bots[id];
