@@ -30,7 +30,9 @@ if (fs.existsSync(dbPath)) {
             data.bots[id].shouldRun = false; 
             data.bots[id].retryCount = 0;
             data.bots[id].verifyLink = null; 
-            data.bots[id].lastError = null; // إضافة ذاكرة للأخطاء
+            data.bots[id].lastError = null; 
+            // تأكد من وجود إصدار اللعبة
+            if (!data.bots[id].version) data.bots[id].version = '1.20.71';
             if (data.bots[id].health === undefined) data.bots[id].health = 20;
             if (data.bots[id].hunger === undefined) data.bots[id].hunger = 20;
         }
@@ -42,10 +44,10 @@ function saveDB() {
     for (let id in data.bots) {
         let b = data.bots[id];
         toSave.bots[id] = {
-            id: b.id, host: b.host, port: b.port, botName: b.botName,
+            id: b.id, host: b.host, port: b.port, botName: b.botName, version: b.version,
             pos: b.pos, connected: b.connected, connecting: b.connecting,
             verifyLink: b.verifyLink, health: b.health, hunger: b.hunger,
-            lastError: b.lastError // حفظ الخطأ
+            lastError: b.lastError 
         };
     }
     fs.writeFileSync(dbPath, JSON.stringify(toSave, null, 2));
@@ -54,7 +56,7 @@ function saveDB() {
 let activeClients = {}; 
 
 // ==========================================
-// 2. محرك الاتصال (النسخة الذكية الكاشفة للأخطاء)
+// 2. محرك الاتصال 
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -63,12 +65,12 @@ function connectBot(id) {
     b.connecting = true;
     b.connected = false;
     b.verifyLink = null; 
-    b.lastError = null; // تصفير الخطأ عند محاولة الدخول
+    b.lastError = null; 
     b.health = 20;
     b.hunger = 20;
     saveDB();
 
-    console.log(`[${b.botName}] جاري محاولة الاتصال بـ ${b.host}:${b.port}...`);
+    console.log(`[${b.botName}] جاري محاولة الاتصال بـ ${b.host}:${b.port} (الإصدار: ${b.version})...`);
 
     try {
         if (activeClients[id]) {
@@ -76,13 +78,13 @@ function connectBot(id) {
             delete activeClients[id];
         }
 
-        // 🔥 إضافة version: false تجبر البوت على التكيف مع إصدار السيرفر 🔥
+        // تحديد الإصدار يدوياً
         activeClients[id] = bedrock.createClient({ 
             host: b.host, 
             port: b.port, 
             username: b.botName, 
             offline: true,
-            version: false 
+            version: b.version // نستخدم الإصدار المحدد هنا
         });
         
         const client = activeClients[id];
@@ -94,7 +96,6 @@ function connectBot(id) {
             client.queue('request_chunk_radius', { chunk_radius: 2 });
         });
 
-        // التقاط رابط التحقق
         client.on('text', (packet) => {
             const msg = packet.message;
             if (msg && msg.includes('falixnodes.net/verify')) {
@@ -121,12 +122,11 @@ function connectBot(id) {
 
             client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
 
-            // حركة آمنة تماماً لمنع الـ AFK
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected || !isSpawned) return clearInterval(b.moveInterval);
                 try {
-                    client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId }); // تحريك اليد
+                    client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId }); 
                 } catch (e) {}
             }, 30000);
 
@@ -137,7 +137,6 @@ function connectBot(id) {
             }, 20 * 60 * 1000); 
         });
 
-        // قراءة الهيل والجوع
         client.on('update_attributes', (pkt) => {
             if (pkt.runtime_entity_id === b.runtimeId) {
                 let updated = false;
@@ -162,7 +161,6 @@ function connectBot(id) {
             client.queue('respawn', { runtime_entity_id: b.runtimeId, state: 2, position: b.pos });
         });
 
-        // 🔥 تسجيل الأخطاء وطرد السيرفر لعرضها في اللوحة 🔥
         client.on('disconnect', (pkt) => {
             b.lastError = `طرد من السيرفر: ${pkt.reason || "غير معروف"}`;
             saveDB();
@@ -184,7 +182,6 @@ function connectBot(id) {
     }
 }
 
-// تنظيف عميق
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
@@ -246,7 +243,7 @@ const ui = (content) => `
     .btn-verify { background: #e74c3c; color: white; animation: blink 1s infinite; width: 100%; display: block; margin-top: 10px; text-align: center; font-size: 1.1em; }
     .error-box { background: #f8d7da; color: #721c24; padding: 10px; border-radius: 10px; margin-top: 10px; font-weight: bold; border: 1px solid #f5c6cb; text-align: center; }
     @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
-    input { padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin: 5px; width: 100%; max-width: 180px; }
+    input { padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin: 5px; width: 100%; max-width: 140px; }
     .xyz { background: #2c3e50; color: #34e7e4; padding: 10px; border-radius: 10px; font-family: 'Courier New', monospace; font-weight: bold; text-align: left; direction: ltr; margin: 0 15px; }
     .stats-box { background: #fff3cd; color: #856404; padding: 10px; border-radius: 10px; margin-top: 15px; font-weight: bold; display: flex; justify-content: space-around; border: 1px solid #ffeeba;}
 </style></head><body><div class="container">${content}</div>
@@ -274,7 +271,8 @@ app.get('/', (req, res) => {
             <div class="top-row">
                 <div style="flex: 1;">
                     <strong>🤖 ${b.botName}</strong> <br>
-                    <small style="color: #666;">${b.host}:${b.port}</small> <br><br>
+                    <small style="color: #666;">${b.host}:${b.port}</small> <br>
+                    <small style="color: #999;">الإصدار: ${b.version || '1.20.71'}</small> <br><br>
                     <span class="${b.connected ? 'status-on' : 'status-off'}">${statusText}</span>
                 </div>
                 <div class="xyz">X: ${b.pos && b.pos.x ? b.pos.x.toFixed(1) : 0}<br>Y: ${b.pos && b.pos.y ? b.pos.y.toFixed(1) : 0}<br>Z: ${b.pos && b.pos.z ? b.pos.z.toFixed(1) : 0}</div>
@@ -300,6 +298,7 @@ app.get('/', (req, res) => {
             <input name="botName" placeholder="اسم البوت" required>
             <input name="host" placeholder="IP السيرفر" required>
             <input name="port" placeholder="البورت" value="19132" required>
+            <input name="version" placeholder="الإصدار (مثال: 1.20.71)" value="1.20.71" required>
             <button class="btn btn-start">إضافة بوت</button>
         </form>
         
@@ -313,6 +312,7 @@ app.post('/add', (req, res) => {
     const id = Date.now().toString();
     data.bots[id] = { 
         id, botName: req.body.botName, host: req.body.host, port: parseInt(req.body.port), 
+        version: req.body.version, // حفظ الإصدار
         pos: { x: 0, y: 0, z: 0 }, connected: false, connecting: false, shouldRun: false, retryCount: 0, verifyLink: null,
         health: 20, hunger: 20, lastError: null
     };
@@ -328,7 +328,7 @@ app.post('/control', (req, res) => {
         b.shouldRun = true;
         b.retryCount = 0;
         b.verifyLink = null;
-        b.lastError = null; // تصفير الخطأ عند المحاولة الجديدة
+        b.lastError = null; 
         connectBot(id);
     } else if (action === 'stop' || action === 'delete') {
         b.shouldRun = false;
