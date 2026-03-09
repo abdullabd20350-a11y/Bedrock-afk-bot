@@ -35,7 +35,7 @@ function startBot(botId, config) {
         host: config.host,
         port: config.port,
         username: config.username,
-        offline: true // اجعلها false إذا كان السيرفر يتطلب حساب مايكروسوفت رسمي
+        offline: true
     });
 
     client.on('spawn', () => {
@@ -64,22 +64,20 @@ function startBot(botId, config) {
         }
     }, 1000);
 
-    // نظام الخروج والدخول التلقائي كل 20 دقيقة (1200000 ملي ثانية)
+    // نظام الخروج والدخول التلقائي كل 20 دقيقة
     botData.reconnectTimer = setTimeout(() => {
         console.log(`Auto-reconnecting ${config.username}...`);
         client.disconnect();
         activeBots.delete(botId);
-        // إعادة الدخول بعد 10 ثواني من الخروج
         setTimeout(() => startBot(botId, config), 10000);
     }, 20 * 60 * 1000);
 
-    // حفظ كائن العميل للتحكم به لاحقاً
     botData.client = client;
 }
 
 // --- واجهة برمجة التطبيقات (API) والتوجيه ---
 
-// عرض واجهة لوحة التحكم عند الدخول للرابط الأساسي
+// الكود اللي يحل مشكلة Cannot GET / ويعرض اللوحة
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
