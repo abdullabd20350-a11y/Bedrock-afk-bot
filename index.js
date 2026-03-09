@@ -1,6 +1,5 @@
 const bedrock = require('bedrock-protocol');
 const express = require('express');
-const session = require('express-session');
 const fs = require('fs');
 const app = express();
 
@@ -9,11 +8,6 @@ process.on('uncaughtException', (err) => { console.log('[System Safe Guard]:', e
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(session({
-    secret: 'kinga-ultra-secret-2026',
-    resave: false,
-    saveUninitialized: true
-}));
 
 // ==========================================
 // 1. إدارة البيانات
@@ -53,6 +47,18 @@ function saveDB() {
 
 let activeClients = {}; 
 
+// 🔥 إغلاق آمن للبوتات لمنع تعليقها كلاعب وهمي لما السيرفر يسوي ريستارت
+function gracefulShutdown() {
+    console.log('\n[System]: جاري إغلاق البوتات بشكل آمن قبل توقف السيرفر...');
+    for (let id in activeClients) {
+        try { activeClients[id].disconnect('Server restarting/shutting down'); } catch(e) {}
+    }
+    // نعطيه مهلة ثانية ونص عشان توصل حزم الخروج لسيرفر ماينكرافت
+    setTimeout(() => process.exit(0), 1500); 
+}
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 // ==========================================
 // 2. محرك الاتصال (الطريقة القديمة والمستقرة)
 // ==========================================
@@ -76,7 +82,6 @@ function connectBot(id) {
             delete activeClients[id];
         }
 
-        // 🔥 كود الاتصال القديم النظيف بدون أي تدخل في الإصدار 🔥
         activeClients[id] = bedrock.createClient({ 
             host: b.host, 
             port: b.port, 
@@ -127,10 +132,12 @@ function connectBot(id) {
                 } catch (e) {}
             }, 30000);
 
+            // دورة الخروج كل 20 دقيقة
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
+                console.log(`[${b.botName}] جاري تسجيل الخروج لإعادة الدخول (دورة الـ 20 دقيقة)...`);
                 b.isRelogging = true; 
-                client.disconnect();
+                client.disconnect('Relogging cycle');
             }, 20 * 60 * 1000); 
         });
 
@@ -153,7 +160,7 @@ function connectBot(id) {
             }
         });
 
-        // تسجيل الأخطاء وطرد السيرفر לעرضها في اللوحة
+        // تسجيل الأخطاء وطرد السيرفر
         client.on('disconnect', (pkt) => {
             b.lastError = `طرد من السيرفر: ${pkt.reason || "غير معروف"}`;
             saveDB();
@@ -175,7 +182,7 @@ function connectBot(id) {
     }
 }
 
-// تنظيف عميق
+// تنظيف عميق عند الانفصال
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
