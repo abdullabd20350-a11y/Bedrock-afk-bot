@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم البوتات</title>
+    <title>لوحة تحكم بوتات Bedrock</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e2f; color: #fff; margin: 0; padding: 20px; }
         .container { max-width: 800px; margin: auto; }
@@ -12,10 +12,13 @@
         input { padding: 10px; margin: 5px 0; width: calc(100% - 22px); border-radius: 5px; border: 1px solid #444; background: #1e1e2f; color: white; }
         button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px; }
         .btn-start { background-color: #4CAF50; color: white; }
+        .btn-start:hover { background-color: #45a049; }
         .btn-stop { background-color: #f44336; color: white; width: auto; }
+        .btn-stop:hover { background-color: #da190b; }
         .bot-item { background: #3f3f5a; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .status-online { color: #4CAF50; font-weight: bold; }
         .status-offline { color: #f44336; font-weight: bold; }
+        .status-connecting { color: #ffeb3b; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -28,7 +31,7 @@
         <input type="text" id="botUsername" placeholder="اسم البوت (مثال: AFK_Bot_1)">
         <input type="text" id="serverIp" placeholder="آيبي السيرفر (مثال: play.server.com)">
         <input type="number" id="serverPort" placeholder="البورت (الافتراضي: 19132)" value="19132">
-        <button class="btn-start" onclick="startBot()">🚀 تشغيل البوت</button>
+        <button class="btn-start" onclick="startBot()">🚀 تشغيل وإضافة البوت</button>
     </div>
 
     <div class="card">
@@ -39,7 +42,6 @@
 </div>
 
 <script>
-    // جلب بيانات البوتات كل 3 ثواني
     async function fetchBots() {
         try {
             const response = await fetch('/api/bots');
@@ -53,7 +55,10 @@
             }
 
             bots.forEach(bot => {
-                const statusClass = bot.status === 'Online' ? 'status-online' : 'status-offline';
+                let statusClass = 'status-offline';
+                if (bot.status === 'Online') statusClass = 'status-online';
+                if (bot.status === 'Connecting...') statusClass = 'status-connecting';
+
                 botsList.innerHTML += `
                     <div class="bot-item">
                         <div>
@@ -72,7 +77,6 @@
         }
     }
 
-    // تشغيل بوت جديد
     async function startBot() {
         const username = document.getElementById('botUsername').value;
         const host = document.getElementById('serverIp').value;
@@ -80,18 +84,17 @@
         
         if (!username || !host) return alert('الرجاء إدخال اسم البوت وآيبي السيرفر!');
 
-        const botId = 'bot_' + Date.now(); // إنشاء ID فريد
+        const botId = 'bot_' + Date.now();
         await fetch('/api/bots/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: botId, username, host, port: parseInt(port) })
         });
         
-        document.getElementById('botUsername').value = ''; // تفريغ الحقل
+        document.getElementById('botUsername').value = ''; 
         fetchBots();
     }
 
-    // إيقاف بوت
     async function stopBot(id) {
         await fetch('/api/bots/stop', {
             method: 'POST',
@@ -101,7 +104,7 @@
         fetchBots();
     }
 
-    // تحديث القائمة تلقائياً
+    // تحديث القائمة كل 3 ثواني
     setInterval(fetchBots, 3000);
     fetchBots();
 </script>
