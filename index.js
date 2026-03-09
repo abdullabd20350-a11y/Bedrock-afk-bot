@@ -59,7 +59,7 @@ process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
 // ==========================================
-// 2. محرك الاتصال 
+// 2. محرك الاتصال (أبسط طريقة)
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -67,157 +67,66 @@ function connectBot(id) {
 
     b.connecting = true;
     b.connected = false;
-    b.verifyLink = null; 
     b.lastError = null; 
-    b.health = 20;
-    b.hunger = 20;
     saveDB();
 
-    console.log(`[${b.botName}] جاري محاولة الاتصال بـ ${b.host}:${b.port}...`);
+    console.log(`[${b.botName}] جاري الاتصال المباشر بـ ${b.host}:${b.port}...`);
 
     try {
+        // تنظيف أي اتصال معلق في الرام
         if (activeClients[id]) {
             try { activeClients[id].disconnect(); } catch(e) {}
             delete activeClients[id];
         }
 
+        // إنشاء اتصال بأبسط إعدادات
         activeClients[id] = bedrock.createClient({ 
             host: b.host, 
             port: b.port, 
             username: b.botName, 
-            offline: true
+            offline: true // ملاحظة: لو السيرفر أصلي ويطلب حساب، غيرها لـ false
         });
         
         const client = activeClients[id];
 
-        client.on('start_game', (pkt) => { 
-            b.runtimeId = pkt.runtime_entity_id; 
-            if (pkt.player_position) b.pos = pkt.player_position;
-            client.queue('request_chunk_radius', { chunk_radius: 2 });
-        });
-
-        // التقاط رابط التحقق
-        client.on('text', (packet) => {
-            const msg = packet.message;
-            if (msg && msg.includes('falixnodes.net/verify')) {
-                const match = msg.match(/(https:\/\/client\.falixnodes\.net\/verify\?t=[a-zA-Z0-9]+)/);
-                if (match) {
-                    b.verifyLink = match[1]; 
-                    saveDB();
-                }
-            }
-            if (msg && msg.includes('Thanks for verifying')) {
-                b.verifyLink = null;
-                saveDB();
-            }
-        });
-
+        // أول ما يترسبن البوت في العالم
         client.on('spawn', () => {
-            console.log(`[${b.botName}] دخل السيرفر بنجاح!`);
+            console.log(`[${b.botName}] ✅ دخل السيرفر بنجاح!`);
             b.connected = true;
             b.connecting = false;
-            b.retryCount = 0; 
             b.lastError = null;
             saveDB();
-
-            client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
-
-            if (b.moveInterval) clearInterval(b.moveInterval);
-            b.moveInterval = setInterval(() => {
-                if (!b.connected) return clearInterval(b.moveInterval);
-                try {
-                    client.queue('animate', { action_id: 1, runtime_entity_id: b.runtimeId }); 
-                } catch (e) {}
-            }, 30000);
-
-            // دورة الخروج كل 20 دقيقة (تم إعادتها للصيغة الأصلية)
-            if (b.reloginTimer) clearTimeout(b.reloginTimer);
-            b.reloginTimer = setTimeout(() => {
-                console.log(`[${b.botName}] الخروج التلقائي (20 دقيقة)...`);
-                b.isRelogging = true; 
-                client.disconnect();
-            }, 20 * 60 * 1000); 
         });
 
-        client.on('update_attributes', (pkt) => {
-            if (pkt.runtime_entity_id === b.runtimeId) {
-                let updated = false;
-                for (const attr of pkt.attributes) {
-                    if (attr.name === 'minecraft:health') { b.health = attr.current; updated = true; } 
-                    else if (attr.name === 'minecraft:player.hunger') { b.hunger = attr.current; updated = true; }
-                }
-                if (updated) saveDB();
-            }
-        });
-
-        client.on('move_player', (pkt) => {
-            if (pkt.runtime_entity_id === b.runtimeId) {
-                b.pos = pkt.position;
-                saveDB();
-            }
-        });
-
+        // التقاط أي رسالة طرد من السيرفر
         client.on('disconnect', (pkt) => {
-            const reason = pkt.reason || "غير معروف";
-            console.log(`[${b.botName}] تم الطرد: ${reason}`);
-            b.lastError = `طرد من السيرفر: ${reason}`;
+            const reason = pkt.reason || "بدون سبب";
+            console.log(`[${b.botName}] ❌ تم الطرد: ${reason}`);
+            b.lastError = `مفصول: ${reason}`;
+            b.connected = false;
+            b.connecting = false;
             saveDB();
-            handleDisconnect(id);
+            
+            // إعادة محاولة بسيطة بعد 30 ثانية
+            if (b.shouldRun) {
+                setTimeout(() => connectBot(id), 30000);
+            }
         });
 
+        // التقاط أي مشكلة في الشبكة أو المنصة
         client.on('error', (err) => { 
-            console.log(`[${b.botName}] رسالة خطأ: ${err.message}`);
-            b.lastError = `فشل الاتصال: ${err.message}`;
+            console.log(`[${b.botName}] ⚠️ خطأ تقني: ${err.message}`);
+            b.lastError = `خطأ: ${err.message}`;
+            b.connected = false;
+            b.connecting = false;
             saveDB();
-            handleDisconnect(id); 
         });
         
-        client.on('close', () => { handleDisconnect(id); });
-
     } catch (e) {
-        console.log(`[${b.botName}] خطأ في السكريبت: ${e.message}`);
-        b.lastError = `خطأ في الكود: ${e.message}`;
-        saveDB();
-        handleDisconnect(id);
-    }
-}
-
-// تنظيف عميق
-function handleDisconnect(id) {
-    const b = data.bots[id];
-    if (!b) return;
-
-    if (b.moveInterval) clearInterval(b.moveInterval);
-    if (b.reloginTimer) clearTimeout(b.reloginTimer);
-    
-    if (activeClients[id]) {
-        try { activeClients[id].disconnect(); } catch(e) {}
-        delete activeClients[id]; 
-    }
-
-    b.connected = false;
-    b.connecting = false;
-    saveDB();
-
-    if (!b.shouldRun) return; 
-
-    if (b.isRelogging) {
-        b.isRelogging = false;
-        setTimeout(() => connectBot(id), 5000); 
-        return;
-    }
-
-    if (b.retryCount === 0) {
-        b.retryCount = 1;
-        setTimeout(() => connectBot(id), 30000);
-    } 
-    else if (b.retryCount === 1) {
-        b.retryCount = 2;
-        setTimeout(() => connectBot(id), 60000);
-    } 
-    else {
-        b.shouldRun = false; 
-        b.retryCount = 0;
+        console.log(`[${b.botName}] 🛑 مشكلة في السكريبت: ${e.message}`);
+        b.lastError = `مشكلة: ${e.message}`;
+        b.connected = false;
+        b.connecting = false;
         saveDB();
     }
 }
@@ -330,7 +239,6 @@ app.post('/control', (req, res) => {
         connectBot(id);
     } else if (action === 'stop' || action === 'delete') {
         b.shouldRun = false;
-        b.isRelogging = false;
         b.verifyLink = null;
         
         if (activeClients[id]) {
