@@ -47,20 +47,19 @@ function saveDB() {
 
 let activeClients = {}; 
 
-// 🔥 إغلاق آمن للبوتات لمنع تعليقها كلاعب وهمي لما السيرفر يسوي ريستارت
+// 🔥 إغلاق آمن للبوتات لمنع تعليقها كلاعب وهمي
 function gracefulShutdown() {
-    console.log('\n[System]: جاري إغلاق البوتات بشكل آمن قبل توقف السيرفر...');
+    console.log('\n[System]: جاري إغلاق البوتات بشكل آمن...');
     for (let id in activeClients) {
-        try { activeClients[id].disconnect('Server restarting/shutting down'); } catch(e) {}
+        try { activeClients[id].disconnect(); } catch(e) {}
     }
-    // نعطيه مهلة ثانية ونص عشان توصل حزم الخروج لسيرفر ماينكرافت
-    setTimeout(() => process.exit(0), 1500); 
+    setTimeout(() => process.exit(0), 1000); 
 }
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
 // ==========================================
-// 2. محرك الاتصال (الطريقة القديمة والمستقرة)
+// 2. محرك الاتصال 
 // ==========================================
 function connectBot(id) {
     const b = data.bots[id];
@@ -74,7 +73,7 @@ function connectBot(id) {
     b.hunger = 20;
     saveDB();
 
-    console.log(`[${b.botName}] جاري محاولة الاتصال بالطريقة الكلاسيكية بـ ${b.host}:${b.port}...`);
+    console.log(`[${b.botName}] جاري محاولة الاتصال بـ ${b.host}:${b.port}...`);
 
     try {
         if (activeClients[id]) {
@@ -123,7 +122,6 @@ function connectBot(id) {
 
             client.queue('set_local_player_as_initialized', { runtime_entity_id: b.runtimeId });
 
-            // حركة آمنة تماماً لمنع الـ AFK (تحريك اليد فقط)
             if (b.moveInterval) clearInterval(b.moveInterval);
             b.moveInterval = setInterval(() => {
                 if (!b.connected) return clearInterval(b.moveInterval);
@@ -132,16 +130,15 @@ function connectBot(id) {
                 } catch (e) {}
             }, 30000);
 
-            // دورة الخروج كل 20 دقيقة
+            // دورة الخروج كل 20 دقيقة (تم إعادتها للصيغة الأصلية)
             if (b.reloginTimer) clearTimeout(b.reloginTimer);
             b.reloginTimer = setTimeout(() => {
-                console.log(`[${b.botName}] جاري تسجيل الخروج لإعادة الدخول (دورة الـ 20 دقيقة)...`);
+                console.log(`[${b.botName}] الخروج التلقائي (20 دقيقة)...`);
                 b.isRelogging = true; 
-                client.disconnect('Relogging cycle');
+                client.disconnect();
             }, 20 * 60 * 1000); 
         });
 
-        // قراءة الهيل والجوع
         client.on('update_attributes', (pkt) => {
             if (pkt.runtime_entity_id === b.runtimeId) {
                 let updated = false;
@@ -160,14 +157,16 @@ function connectBot(id) {
             }
         });
 
-        // تسجيل الأخطاء وطرد السيرفر
         client.on('disconnect', (pkt) => {
-            b.lastError = `طرد من السيرفر: ${pkt.reason || "غير معروف"}`;
+            const reason = pkt.reason || "غير معروف";
+            console.log(`[${b.botName}] تم الطرد: ${reason}`);
+            b.lastError = `طرد من السيرفر: ${reason}`;
             saveDB();
             handleDisconnect(id);
         });
 
         client.on('error', (err) => { 
+            console.log(`[${b.botName}] رسالة خطأ: ${err.message}`);
             b.lastError = `فشل الاتصال: ${err.message}`;
             saveDB();
             handleDisconnect(id); 
@@ -176,13 +175,14 @@ function connectBot(id) {
         client.on('close', () => { handleDisconnect(id); });
 
     } catch (e) {
+        console.log(`[${b.botName}] خطأ في السكريبت: ${e.message}`);
         b.lastError = `خطأ في الكود: ${e.message}`;
         saveDB();
         handleDisconnect(id);
     }
 }
 
-// تنظيف عميق عند الانفصال
+// تنظيف عميق
 function handleDisconnect(id) {
     const b = data.bots[id];
     if (!b) return;
@@ -277,8 +277,8 @@ app.get('/', (req, res) => {
                 </div>
                 <div class="xyz">X: ${b.pos && b.pos.x ? b.pos.x.toFixed(1) : 0}<br>Y: ${b.pos && b.pos.y ? b.pos.y.toFixed(1) : 0}<br>Z: ${b.pos && b.pos.z ? b.pos.z.toFixed(1) : 0}</div>
                 <div>
-                    <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled opacity:0.5':''}>تشغيل</button>
-                    <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled opacity:0.5':''}>إيقاف</button>
+                    <button class="btn btn-start" onclick="ctl('${b.id}', 'start')" ${b.connected || b.connecting ? 'disabled style="opacity:0.5"':''}>تشغيل</button>
+                    <button class="btn btn-stop" onclick="ctl('${b.id}', 'stop')" ${!b.connected && !b.connecting ? 'disabled style="opacity:0.5"':''}>إيقاف</button>
                     <button class="btn btn-del" onclick="ctl('${b.id}', 'delete')">حذف</button>
                 </div>
             </div>
