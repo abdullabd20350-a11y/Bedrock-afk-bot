@@ -2,13 +2,10 @@
   "name": "bedrock-afk-bot",
   "version": "1.0.0",
   "description": "Minecraft Bedrock AFK Bot Dashboard",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "bedrock-protocol": "latest",
     "cors": "latest",
