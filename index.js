@@ -1,6 +1,7 @@
 const bedrock = require('bedrock-protocol');
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -51,10 +52,15 @@ function startBot(botId, config) {
         console.log(`${config.username} disconnected.`);
     });
 
-    // تحديث وقت الاتصال (Uptime)
+    client.on('error', (err) => {
+        botData.status = 'Error';
+        console.log(`Error with ${config.username}:`, err.message);
+    });
+
+    // تحديث وقت الاتصال (Uptime) بالثواني
     setInterval(() => {
         if (botData.status === 'Online') {
-            botData.uptime = Math.floor((Date.now() - startTime) / 1000); // بالثواني
+            botData.uptime = Math.floor((Date.now() - startTime) / 1000);
         }
     }, 1000);
 
@@ -71,19 +77,23 @@ function startBot(botId, config) {
     botData.client = client;
 }
 
-// واجهة برمجة التطبيقات (API) للوحة التحكم
+// --- واجهة برمجة التطبيقات (API) والتوجيه ---
 
-// 1. جلب بيانات جميع البوتات
+// عرض واجهة لوحة التحكم عند الدخول للرابط الأساسي
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// جلب بيانات جميع البوتات
 app.get('/api/bots', (req, res) => {
     const botsList = Array.from(activeBots.values()).map(bot => {
-        // إزالة كائن العميل من الاستجابة لتخفيف حجم البيانات
         const { client, reconnectTimer, ...safeData } = bot;
         return safeData;
     });
     res.json(botsList);
 });
 
-// 2. إضافة وتشغيل بوت جديد
+// إضافة وتشغيل بوت جديد
 app.post('/api/bots/start', (req, res) => {
     const { id, username, host, port } = req.body;
     if (!id || !username || !host) return res.status(400).json({ error: 'Missing data' });
@@ -92,13 +102,13 @@ app.post('/api/bots/start', (req, res) => {
     res.json({ message: 'Bot starting...' });
 });
 
-// 3. إيقاف بوت
+// إيقاف بوت
 app.post('/api/bots/stop', (req, res) => {
     const { id } = req.body;
     const bot = activeBots.get(id);
     if (bot) {
         clearTimeout(bot.reconnectTimer);
-        bot.client.disconnect();
+        if (bot.client) bot.client.disconnect();
         activeBots.delete(id);
         res.json({ message: 'Bot stopped and removed.' });
     } else {
@@ -106,8 +116,8 @@ app.post('/api/bots/stop', (req, res) => {
     }
 });
 
-// تشغيل خادم الويب
-const PORT = process.env.PORT || 3000;
+// تشغيل الخادم
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`Dashboard API running on port ${PORT}`);
+    console.log(`Dashboard running on port ${PORT}`);
 });
