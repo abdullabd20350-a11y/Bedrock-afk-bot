@@ -1,7 +1,7 @@
 {
-  "name": "bedrock-bot-dashboard",
+  "name": "bedrock-bot-manager",
   "version": "1.0.0",
-  "description": "Minecraft Bedrock Bot Manager",
+  "description": "Minecraft Bedrock Bot with Dashboard",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
