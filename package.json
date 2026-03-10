@@ -1,14 +1,13 @@
 {
-  "name": "bedrock-afk-bot",
+  "name": "bedrock-bot-dashboard",
   "version": "1.0.0",
-  "description": "Minecraft Bedrock AFK Bot Dashboard",
+  "description": "Minecraft Bedrock Bot Manager",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "bedrock-protocol": "latest",
-    "cors": "latest",
-    "express": "latest"
+    "bedrock-protocol": "^3.28.0",
+    "express": "^4.18.2"
   }
 }
