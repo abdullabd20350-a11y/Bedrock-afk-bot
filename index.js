@@ -6,33 +6,45 @@ const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
-// ذاكرة لتخزين بيانات البوتات
 let botsData = {};
 let botClients = {};
 let reconnectTimers = {};
 
-// دالة لتشغيل البوت
 function startBot(id) {
     const botInfo = botsData[id];
     if (!botInfo) return;
+
+    // تنظيف الاتصال القديم إذا كان موجوداً
+    if (botClients[id]) {
+        try { botClients[id].disconnect(); } catch (e) {}
+    }
 
     try {
         const client = bedrock.createClient({
             host: botInfo.host,
             port: botInfo.port,
             username: botInfo.username,
-            offline: true // اجعلها false إذا كان السيرفر يتطلب حساب Xbox أصلي
+            offline: true
         });
 
         botClients[id] = client;
-        botInfo.status = 'متصل';
+        botInfo.status = 'جاري الاتصال...';
         botInfo.connectedAt = Date.now();
 
+        // عند الدخول بنجاح
         client.on('join', () => {
-            console.log(`Bot ${botInfo.username} joined ${botInfo.host}`);
+            botInfo.status = 'متصل';
+            console.log(`Bot ${botInfo.username} connected.`);
         });
 
-        // محاولة التقاط الإحداثيات (قد تختلف حسب إصدار البيدروك)
+        // التقاط الإحداثيات عند أول ظهور (Spawn)
+        client.on('start_game', (packet) => {
+            if (packet.player_position) {
+                botInfo.coordinates = `X: ${Math.floor(packet.player_position.x)}, Y: ${Math.floor(packet.player_position.y)}, Z: ${Math.floor(packet.player_position.z)}`;
+            }
+        });
+
+        // تحديث الإحداثيات عند تحرك البوت
         client.on('move_player', (packet) => {
             if (packet.runtime_id === client.entityId) {
                 botInfo.coordinates = `X: ${Math.floor(packet.position.x)}, Y: ${Math.floor(packet.position.y)}, Z: ${Math.floor(packet.position.z)}`;
@@ -44,77 +56,52 @@ function startBot(id) {
             botInfo.coordinates = 'غير متوفر';
         });
 
-        // نظام الخروج والدخول كل 20 دقيقة (1200000 مللي ثانية)
+        client.on('error', (err) => {
+            botInfo.status = 'خطأ في الاتصال';
+            console.error(err);
+        });
+
+        // ✅ إعادة الاتصال التلقائي كل 20 دقيقة
         if (reconnectTimers[id]) clearInterval(reconnectTimers[id]);
         reconnectTimers[id] = setInterval(() => {
-            console.log(`Auto-reconnecting bot ${botInfo.username}...`);
-            client.disconnect();
-            setTimeout(() => startBot(id), 5000); // الانتظار 5 ثوانٍ ثم الدخول مجدداً
+            console.log(`Reconnecting bot ${botInfo.username}...`);
+            if (botClients[id]) {
+                try { botClients[id].disconnect(); } catch (e) {}
+            }
+            botInfo.status = 'إعادة اتصال تلقائي...';
+            setTimeout(() => startBot(id), 5000);
         }, 20 * 60 * 1000);
 
     } catch (error) {
-        console.error('Error starting bot:', error);
-        botInfo.status = 'خطأ في الاتصال';
+        botInfo.status = 'فشل التشغيل';
     }
 }
 
-// دالة لإيقاف البوت
 function stopBot(id) {
-    if (botClients[id]) {
-        botClients[id].disconnect();
-        delete botClients[id];
-    }
-    if (reconnectTimers[id]) {
-        clearInterval(reconnectTimers[id]);
-        delete reconnectTimers[id];
-    }
-    if (botsData[id]) {
-        botsData[id].status = 'متوقف';
-    }
+    if (reconnectTimers[id]) { clearInterval(reconnectTimers[id]); delete reconnectTimers[id]; }
+    if (botClients[id]) { try { botClients[id].disconnect(); } catch (e) {} delete botClients[id]; }
+    if (botsData[id]) { botsData[id].status = 'متوقف'; botsData[id].coordinates = 'غير متوفر'; }
 }
 
-// --- واجهات برمجة التطبيقات (API) للوحة التحكم ---
-
-// جلب بيانات كل البوتات
+// API Endpoints
 app.get('/api/bots', (req, res) => {
-    // حساب مدة الاتصال (Uptime)
-    const responseData = Object.keys(botsData).map(id => {
+    const response = Object.keys(botsData).map(id => {
         const b = botsData[id];
         const uptime = b.connectedAt && b.status === 'متصل' ? Math.floor((Date.now() - b.connectedAt) / 60000) : 0;
         return { ...b, uptime: `${uptime} دقيقة` };
     });
-    res.json(responseData);
+    res.json(response);
 });
 
-// إضافة أو تعديل بوت
 app.post('/api/bots', (req, res) => {
-    const { id, username, host, port } = req.body;
-    const botId = id || Date.now().toString(); // إنشاء ID جديد إذا لم يكن موجوداً
-    
-    botsData[botId] = {
-        id: botId,
-        username,
-        host,
-        port: parseInt(port) || 19132,
-        status: 'مضاف (لم يعمل بعد)',
-        coordinates: 'غير متوفر',
-        connectedAt: null
-    };
-    res.json({ success: true, bot: botsData[botId] });
-});
-
-// تشغيل بوت
-app.post('/api/bots/:id/start', (req, res) => {
-    startBot(req.params.id);
+    const { username, host, port } = req.body;
+    const botId = Date.now().toString();
+    botsData[botId] = { id: botId, username, host, port: parseInt(port) || 19132, status: 'مضاف', coordinates: 'غير متوفر', connectedAt: null };
     res.json({ success: true });
 });
 
-// إيقاف بوت
-app.post('/api/bots/:id/stop', (req, res) => {
-    stopBot(req.params.id);
-    res.json({ success: true });
-});
+app.post('/api/bots/:id/start', (req, res) => { startBot(req.params.id); res.json({ success: true }); });
+app.post('/api/bots/:id/stop', (req, res) => { stopBot(req.params.id); res.json({ success: true }); });
 
-// تشغيل خادم الموقع
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Dashboard running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Dashboard active on port ${PORT}`));
