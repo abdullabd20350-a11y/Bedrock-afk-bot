@@ -2,44 +2,63 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>لوحة التحكم</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إدارة بوتات Minecraft</title>
     <style>
-        body { font-family: sans-serif; background: #1a1a2e; color: white; padding: 20px; }
-        .card { background: #16213e; padding: 15px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #0f3460; }
-        input, button { padding: 8px; margin: 5px; border-radius: 4px; border: none; }
-        button { cursor: pointer; background: #e94560; color: white; }
-        .start-btn { background: #0f9d58; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #0f172a; color: white; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        .card { background: #1e293b; padding: 20px; margin-bottom: 15px; border-radius: 12px; border: 1px solid #334155; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        input { background: #0f172a; border: 1px solid #334155; color: white; padding: 10px; border-radius: 6px; margin: 5px; }
+        button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-add { background: #3b82f6; color: white; width: 100%; margin-top: 10px; }
+        .btn-start { background: #10b981; color: white; margin-left: 10px; }
+        .btn-stop { background: #ef4444; color: white; }
+        .status-tag { color: #f59e0b; font-weight: bold; }
+        .coords { color: #10b981; font-family: monospace; }
     </style>
 </head>
 <body>
-    <h1>إدارة بوتات ماين كرافت</h1>
-    <div class="card">
-        <input type="text" id="user" placeholder="اسم البوت">
-        <input type="text" id="host" placeholder="IP السيرفر">
-        <input type="number" id="port" value="19132">
-        <button onclick="addBot()" class="start-btn">إضافة بوت</button>
+    <div class="container">
+        <h1>🤖 مدير بوتات بيدروك</h1>
+        
+        <div class="card">
+            <h3>إضافة بوت جديد للسيرفر</h3>
+            <input type="text" id="user" placeholder="اسم البوت">
+            <input type="text" id="host" placeholder="آيبي السيرفر (IP)">
+            <input type="number" id="port" value="19132" placeholder="البورت">
+            <button class="btn-add" onclick="addBot()">إضافة وحفظ</button>
+        </div>
+
+        <div id="list" class="grid"></div>
     </div>
-    <div id="list"></div>
 
     <script>
         async function loadBots() {
-            const res = await fetch('/api/bots');
-            const data = await res.json();
-            const list = document.getElementById('list');
-            list.innerHTML = data.map(bot => `
-                <div class="card">
-                    <h3>${bot.username} (${bot.host})</h3>
-                    <p>الحالة: ${bot.status} | الإحداثيات: ${bot.coordinates}</p>
-                    <p>متصل منذ: ${bot.uptime}</p>
-                    <button class="start-btn" onclick="startBot('${bot.id}')">تشغيل</button>
-                    <button onclick="stopBot('${bot.id}')">إيقاف</button>
-                </div>
-            `).join('');
+            try {
+                const res = await fetch('/api/bots');
+                const data = await res.json();
+                const list = document.getElementById('list');
+                list.innerHTML = data.map(bot => `
+                    <div class="card">
+                        <h3 style="margin-top:0">${bot.username}</h3>
+                        <p>📍 <b>السيرفر:</b> ${bot.host}</p>
+                        <p>📊 <b>الحالة:</b> <span class="status-tag">${bot.status}</span></p>
+                        <p>⏱️ <b>متصل منذ:</b> ${bot.uptime}</p>
+                        <p>🌍 <b>الإحداثيات:</b> <span class="coords">${bot.coordinates}</span></p>
+                        <hr style="border:0; border-top:1px solid #334155">
+                        <button class="btn-start" onclick="startBot('${bot.id}')">تشغيل</button>
+                        <button class="btn-stop" onclick="stopBot('${bot.id}')">إيقاف</button>
+                    </div>
+                `).join('');
+            } catch (e) { console.error("خطأ في جلب البيانات"); }
         }
+
         async function addBot() {
             const username = document.getElementById('user').value;
             const host = document.getElementById('host').value;
             const port = document.getElementById('port').value;
+            if(!username || !host) return alert("اكمل البيانات!");
             await fetch('/api/bots', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -47,9 +66,11 @@
             });
             loadBots();
         }
+
         async function startBot(id) { await fetch(`/api/bots/${id}/start`, {method: 'POST'}); loadBots(); }
         async function stopBot(id) { await fetch(`/api/bots/${id}/stop`, {method: 'POST'}); loadBots(); }
-        setInterval(loadBots, 3000);
+
+        setInterval(loadBots, 3000); // تحديث اللوحة كل 3 ثواني
         loadBots();
     </script>
 </body>
