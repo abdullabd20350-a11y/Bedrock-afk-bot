@@ -15,7 +15,7 @@ function startMinecraftBot(botId) {
 
     botData.status = 'Connecting...';
     botData.uptime = 0;
-    botData.msaCode = null; // مسح الكود القديم إن وجد
+    botData.msaCode = null;
     botData.msaUrl = null;
     const startTime = Date.now();
 
@@ -26,11 +26,14 @@ function startMinecraftBot(botId) {
             username: botData.username,
             offline: false, 
             
-            // هنا نرسل الكود للوحة التحكم مباشرة!
+            // التعديل هنا: دعمنا كل أسماء المتغيرات اللي ممكن ترسلها المكتبة
             onMsaCode: (response) => {
                 botData.status = 'يطلب تسجيل دخول 👇';
-                botData.msaCode = response.user_code;
-                botData.msaUrl = response.verification_uri;
+                botData.msaCode = response.userCode || response.user_code || 'الكود_غير_معروف';
+                botData.msaUrl = response.verificationUri || response.verification_uri || 'https://www.microsoft.com/link';
+                
+                // ضفتها هنا كاحتياط لو احتجت تشوفها في Render
+                console.log(`[MSA] URL: ${botData.msaUrl} | CODE: ${botData.msaCode}`);
             }
         });
 
@@ -38,7 +41,7 @@ function startMinecraftBot(botId) {
 
         client.on('spawn', () => {
             botData.status = 'Online';
-            botData.msaCode = null; // إخفاء الكود من اللوحة بعد نجاح الدخول
+            botData.msaCode = null; 
             botData.msaUrl = null;
             console.log(`${botData.username} spawned in the server!`);
         });
