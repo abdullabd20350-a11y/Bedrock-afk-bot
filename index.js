@@ -1,142 +1,120 @@
-const bedrock = require('bedrock-protocol');
 const express = require('express');
-const cors = require('cors');
+const bedrock = require('bedrock-protocol');
 const path = require('path');
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(express.static('public'));
 
-const botsManager = new Map();
+// ذاكرة لتخزين بيانات البوتات
+let botsData = {};
+let botClients = {};
+let reconnectTimers = {};
 
-function startMinecraftBot(botId) {
-    const botData = botsManager.get(botId);
-    if (!botData || botData.status === 'Online' || botData.status === 'Connecting...') return;
-
-    botData.status = 'Connecting...';
-    botData.uptime = 0;
-    botData.msaCode = null;
-    botData.msaUrl = null;
-    const startTime = Date.now();
+// دالة لتشغيل البوت
+function startBot(id) {
+    const botInfo = botsData[id];
+    if (!botInfo) return;
 
     try {
         const client = bedrock.createClient({
-            host: botData.serverIp,
-            port: botData.port,
-            username: botData.username,
-            offline: false, 
-            
-            // التعديل هنا: دعمنا كل أسماء المتغيرات اللي ممكن ترسلها المكتبة
-            onMsaCode: (response) => {
-                botData.status = 'يطلب تسجيل دخول 👇';
-                botData.msaCode = response.userCode || response.user_code || 'الكود_غير_معروف';
-                botData.msaUrl = response.verificationUri || response.verification_uri || 'https://www.microsoft.com/link';
-                
-                // ضفتها هنا كاحتياط لو احتجت تشوفها في Render
-                console.log(`[MSA] URL: ${botData.msaUrl} | CODE: ${botData.msaCode}`);
+            host: botInfo.host,
+            port: botInfo.port,
+            username: botInfo.username,
+            offline: true // اجعلها false إذا كان السيرفر يتطلب حساب Xbox أصلي
+        });
+
+        botClients[id] = client;
+        botInfo.status = 'متصل';
+        botInfo.connectedAt = Date.now();
+
+        client.on('join', () => {
+            console.log(`Bot ${botInfo.username} joined ${botInfo.host}`);
+        });
+
+        // محاولة التقاط الإحداثيات (قد تختلف حسب إصدار البيدروك)
+        client.on('move_player', (packet) => {
+            if (packet.runtime_id === client.entityId) {
+                botInfo.coordinates = `X: ${Math.floor(packet.position.x)}, Y: ${Math.floor(packet.position.y)}, Z: ${Math.floor(packet.position.z)}`;
             }
-        });
-
-        botData.client = client;
-
-        client.on('spawn', () => {
-            botData.status = 'Online';
-            botData.msaCode = null; 
-            botData.msaUrl = null;
-            console.log(`${botData.username} spawned in the server!`);
-        });
-
-        client.on('position', (pos) => {
-            botData.coordinates = { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) };
-        });
-
-        client.on('disconnect', (packet) => {
-            const reason = packet?.message || packet?.reason || 'تم الطرد من السيرفر';
-            botData.status = `مفصول: ${reason}`;
-            clearAllTimers(botData);
-        });
-
-        client.on('error', (err) => {
-            botData.status = `خطأ: ${err.message}`;
-            clearAllTimers(botData);
         });
 
         client.on('close', () => {
-            if (botData.status === 'Online' || botData.status === 'Connecting...') {
-                botData.status = 'Offline';
-            }
-            clearAllTimers(botData);
+            botInfo.status = 'غير متصل';
+            botInfo.coordinates = 'غير متوفر';
         });
 
-        botData.uptimeInterval = setInterval(() => {
-            if (botData.status === 'Online') {
-                botData.uptime = Math.floor((Date.now() - startTime) / 1000);
-            }
-        }, 1000);
-
-        botData.reconnectTimer = setTimeout(() => {
-            if(botData.status === 'Online') {
-                client.disconnect();
-                setTimeout(() => startMinecraftBot(botId), 10000); 
-            }
+        // نظام الخروج والدخول كل 20 دقيقة (1200000 مللي ثانية)
+        if (reconnectTimers[id]) clearInterval(reconnectTimers[id]);
+        reconnectTimers[id] = setInterval(() => {
+            console.log(`Auto-reconnecting bot ${botInfo.username}...`);
+            client.disconnect();
+            setTimeout(() => startBot(id), 5000); // الانتظار 5 ثوانٍ ثم الدخول مجدداً
         }, 20 * 60 * 1000);
 
-    } catch (err) {
-        botData.status = `خطأ النظام: ${err.message}`;
+    } catch (error) {
+        console.error('Error starting bot:', error);
+        botInfo.status = 'خطأ في الاتصال';
     }
 }
 
-function clearAllTimers(botData) {
-    clearInterval(botData.uptimeInterval);
-    clearTimeout(botData.reconnectTimer);
-}
-
-function stopMinecraftBot(botId) {
-    const botData = botsManager.get(botId);
-    if (botData && botData.client) {
-        clearAllTimers(botData);
-        botData.client.disconnect();
-        botData.status = 'Offline';
-        botData.msaCode = null;
-        botData.msaUrl = null;
+// دالة لإيقاف البوت
+function stopBot(id) {
+    if (botClients[id]) {
+        botClients[id].disconnect();
+        delete botClients[id];
+    }
+    if (reconnectTimers[id]) {
+        clearInterval(reconnectTimers[id]);
+        delete reconnectTimers[id];
+    }
+    if (botsData[id]) {
+        botsData[id].status = 'متوقف';
     }
 }
 
-// --- API ROUTES ---
+// --- واجهات برمجة التطبيقات (API) للوحة التحكم ---
 
-app.get('/', (req, res) => { res.sendFile(path.join(__dirname, 'index.html')); });
-
+// جلب بيانات كل البوتات
 app.get('/api/bots', (req, res) => {
-    const botsList = Array.from(botsManager.values()).map(bot => {
-        const { client, reconnectTimer, uptimeInterval, ...safeData } = bot;
-        return safeData;
+    // حساب مدة الاتصال (Uptime)
+    const responseData = Object.keys(botsData).map(id => {
+        const b = botsData[id];
+        const uptime = b.connectedAt && b.status === 'متصل' ? Math.floor((Date.now() - b.connectedAt) / 60000) : 0;
+        return { ...b, uptime: `${uptime} دقيقة` };
     });
-    res.json(botsList);
+    res.json(responseData);
 });
 
-app.post('/api/bots/add', (req, res) => {
+// إضافة أو تعديل بوت
+app.post('/api/bots', (req, res) => {
     const { id, username, host, port } = req.body;
-    if (!id || !username || !host) return res.status(400).json({ error: 'Missing data' });
+    const botId = id || Date.now().toString(); // إنشاء ID جديد إذا لم يكن موجوداً
     
-    botsManager.set(id, {
-        id, username, serverIp: host, port: port || 19132,
-        status: 'Offline', coordinates: { x: 0, y: 0, z: 0 }, uptime: 0,
-        msaCode: null, msaUrl: null,
-        client: null, reconnectTimer: null, uptimeInterval: null
-    });
-    res.json({ message: 'Bot added.' });
+    botsData[botId] = {
+        id: botId,
+        username,
+        host,
+        port: parseInt(port) || 19132,
+        status: 'مضاف (لم يعمل بعد)',
+        coordinates: 'غير متوفر',
+        connectedAt: null
+    };
+    res.json({ success: true, bot: botsData[botId] });
 });
 
-app.post('/api/bots/start', (req, res) => { startMinecraftBot(req.body.id); res.json({ message: 'Bot starting...' }); });
-app.post('/api/bots/stop', (req, res) => { stopMinecraftBot(req.body.id); res.json({ message: 'Bot stopped.' }); });
-app.post('/api/bots/delete', (req, res) => { stopMinecraftBot(req.body.id); botsManager.delete(req.body.id); res.json({ message: 'Bot deleted.' }); });
-app.post('/api/bots/edit', (req, res) => {
-    const bot = botsManager.get(req.body.id);
-    if (bot && !bot.status.includes('Online') && !bot.status.includes('Connecting')) {
-        bot.username = req.body.username; bot.serverIp = req.body.host; bot.port = req.body.port;
-        res.json({ message: 'Bot updated.' });
-    } else { res.status(400).json({ error: 'Stop the bot before editing.' }); }
+// تشغيل بوت
+app.post('/api/bots/:id/start', (req, res) => {
+    startBot(req.params.id);
+    res.json({ success: true });
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => { console.log(`Dashboard running on port ${PORT}`); });
+// إيقاف بوت
+app.post('/api/bots/:id/stop', (req, res) => {
+    stopBot(req.params.id);
+    res.json({ success: true });
+});
+
+// تشغيل خادم الموقع
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Dashboard running on port ${PORT}`));
