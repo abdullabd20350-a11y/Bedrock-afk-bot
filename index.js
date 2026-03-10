@@ -6,15 +6,17 @@ const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
+// مخزن البيانات
 let botsData = {};
 let botClients = {};
 let reconnectTimers = {};
 
+// دالة لتشغيل البوت
 function startBot(id) {
     const botInfo = botsData[id];
     if (!botInfo) return;
 
-    // تنظيف الاتصال القديم إذا كان موجوداً
+    // إغلاق أي اتصال قديم لنفس البوت
     if (botClients[id]) {
         try { botClients[id].disconnect(); } catch (e) {}
     }
@@ -24,32 +26,30 @@ function startBot(id) {
             host: botInfo.host,
             port: botInfo.port,
             username: botInfo.username,
-            offline: true
+            offline: true // وضع الأوفلاين كما طلبت
         });
 
         botClients[id] = client;
         botInfo.status = 'جاري الاتصال...';
         botInfo.connectedAt = Date.now();
 
-        // عند الدخول بنجاح
         client.on('join', () => {
             botInfo.status = 'متصل';
-            console.log(`Bot ${botInfo.username} connected.`);
+            console.log(`[${botInfo.username}] دخل السيرفر بنجاح`);
         });
 
-        // التقاط الإحداثيات عند أول ظهور (Spawn)
-        client.on('start_game', (packet) => {
-            if (packet.player_position) {
-                botInfo.coordinates = `X: ${Math.floor(packet.player_position.x)}, Y: ${Math.floor(packet.player_position.y)}, Z: ${Math.floor(packet.player_position.z)}`;
+        // ✅ حل مشكلة الإحداثيات الوهمية (تجاهل القيم غير المنطقية)
+        const updateCoords = (pos) => {
+            if (pos && pos.y < 30000 && pos.y > -128) { // تجاهل الرقم 32769
+                botInfo.coordinates = `X: ${Math.floor(pos.x)}, Y: ${Math.floor(pos.y)}, Z: ${Math.floor(pos.z)}`;
+            } else if (!botInfo.coordinates || botInfo.coordinates === 'غير متوفر') {
+                botInfo.coordinates = "جاري تحديد الموقع الحقيقي...";
             }
-        });
+        };
 
-        // تحديث الإحداثيات عند تحرك البوت
-        client.on('move_player', (packet) => {
-            if (packet.runtime_id === client.entityId) {
-                botInfo.coordinates = `X: ${Math.floor(packet.position.x)}, Y: ${Math.floor(packet.position.y)}, Z: ${Math.floor(packet.position.z)}`;
-            }
-        });
+        client.on('start_game', (packet) => updateCoords(packet.player_position));
+        client.on('move_player', (packet) => updateCoords(packet.position));
+        client.on('player_auth_input', (packet) => updateCoords(packet.position));
 
         client.on('close', () => {
             botInfo.status = 'غير متصل';
@@ -57,33 +57,37 @@ function startBot(id) {
         });
 
         client.on('error', (err) => {
+            console.error(`خطأ في بوت ${botInfo.username}:`, err);
             botInfo.status = 'خطأ في الاتصال';
-            console.error(err);
         });
 
-        // ✅ إعادة الاتصال التلقائي كل 20 دقيقة
+        // ✅ نظام إعادة الاتصال كل 20 دقيقة بدقة
         if (reconnectTimers[id]) clearInterval(reconnectTimers[id]);
         reconnectTimers[id] = setInterval(() => {
-            console.log(`Reconnecting bot ${botInfo.username}...`);
+            console.log(`[إعادة اتصال] البوت ${botInfo.username} يخرج ويدخل الآن...`);
             if (botClients[id]) {
                 try { botClients[id].disconnect(); } catch (e) {}
             }
-            botInfo.status = 'إعادة اتصال تلقائي...';
-            setTimeout(() => startBot(id), 5000);
+            botInfo.status = 'إعادة اتصال دوري...';
+            setTimeout(() => startBot(id), 5000); // ينتظر 5 ثواني ثم يدخل
         }, 20 * 60 * 1000);
 
     } catch (error) {
-        botInfo.status = 'فشل التشغيل';
+        botInfo.status = 'فشل في التشغيل';
     }
 }
 
+// دالة لإيقاف البوت نهائياً
 function stopBot(id) {
     if (reconnectTimers[id]) { clearInterval(reconnectTimers[id]); delete reconnectTimers[id]; }
     if (botClients[id]) { try { botClients[id].disconnect(); } catch (e) {} delete botClients[id]; }
-    if (botsData[id]) { botsData[id].status = 'متوقف'; botsData[id].coordinates = 'غير متوفر'; }
+    if (botsData[id]) {
+        botsData[id].status = 'متوقف';
+        botsData[id].coordinates = 'غير متوفر';
+    }
 }
 
-// API Endpoints
+// واجهات الـ API
 app.get('/api/bots', (req, res) => {
     const response = Object.keys(botsData).map(id => {
         const b = botsData[id];
@@ -104,4 +108,4 @@ app.post('/api/bots/:id/start', (req, res) => { startBot(req.params.id); res.jso
 app.post('/api/bots/:id/stop', (req, res) => { stopBot(req.params.id); res.json({ success: true }); });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Dashboard active on port ${PORT}`));
+app.listen(PORT, () => console.log(`لوحة التحكم تعمل على المنفذ ${PORT}`));
