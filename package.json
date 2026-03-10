@@ -1,7 +1,7 @@
 {
-  "name": "bedrock-bot-manager",
-  "version": "1.0.0",
-  "description": "Minecraft Bedrock Bot with Dashboard",
+  "name": "bedrock-bot-manager-pro",
+  "version": "1.1.0",
+  "description": "Minecraft Bedrock Multi-Bot Manager with Persistence",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
