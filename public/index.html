@@ -2,26 +2,38 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>لوحة تحكم بوتات ماين كرافت</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #2c3e50; color: white; padding: 20px; }
-        .container { max-width: 800px; margin: auto; }
-        .bot-card { background: #34495e; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
-        input, button { padding: 10px; margin: 5px; border-radius: 5px; border: none; }
-        button { background: #27ae60; color: white; cursor: pointer; }
-        button.stop { background: #e74c3c; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e2f; color: #fff; padding: 20px; margin: 0; }
+        .container { max-width: 900px; margin: auto; }
+        h1 { text-align: center; color: #4facfe; }
+        .form-card, .bot-card { background: #2a2a40; padding: 20px; margin-bottom: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .form-group { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        input { flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #1e1e2f; color: white; min-width: 200px; }
+        button { padding: 12px 20px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button.add { background: #4facfe; color: white; width: 100%; }
+        button.add:hover { background: #00f2fe; }
+        button.start { background: #00b09b; color: white; }
+        button.start:hover { background: #96c93d; }
+        button.stop { background: #ff416c; color: white; }
+        button.stop:hover { background: #ff4b2b; }
+        .bot-info p { margin: 8px 0; font-size: 15px; }
+        .status { color: #f1c40f; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>إدارة بوتات بيدروك</h1>
+        <h1>إدارة بوتات بيدروك 🤖</h1>
         
-        <div class="bot-card">
-            <h3>إضافة بوت جديد</h3>
-            <input type="text" id="username" placeholder="اسم البوت">
-            <input type="text" id="host" placeholder="آيبي السيرفر (IP)">
-            <input type="number" id="port" placeholder="البورت (غالباً 19132)" value="19132">
-            <button onclick="addBot()">حفظ البوت</button>
+        <div class="form-card">
+            <h3>➕ إضافة بوت جديد</h3>
+            <div class="form-group">
+                <input type="text" id="username" placeholder="اسم البوت">
+                <input type="text" id="host" placeholder="آيبي السيرفر (IP)">
+                <input type="number" id="port" placeholder="البورت (غالباً 19132)" value="19132">
+            </div>
+            <button class="add" onclick="addBot()">حفظ وإضافة البوت</button>
         </div>
 
         <div id="botsList"></div>
@@ -29,34 +41,47 @@
 
     <script>
         async function fetchBots() {
-            const res = await fetch('/api/bots');
-            const bots = await res.json();
-            const list = document.getElementById('botsList');
-            list.innerHTML = '';
-            bots.forEach(bot => {
-                list.innerHTML += `
-                    <div class="bot-card">
-                        <h3>${bot.username}</h3>
-                        <p><strong>السيرفر:</strong> ${bot.host}:${bot.port}</p>
-                        <p><strong>الحالة:</strong> ${bot.status}</p>
-                        <p><strong>مدة الاتصال:</strong> ${bot.uptime}</p>
-                        <p><strong>الإحداثيات:</strong> ${bot.coordinates}</p>
-                        <button onclick="startBot('${bot.id}')">تشغيل</button>
-                        <button class="stop" onclick="stopBot('${bot.id}')">إيقاف</button>
-                    </div>
-                `;
-            });
+            try {
+                const res = await fetch('/api/bots');
+                const bots = await res.json();
+                const list = document.getElementById('botsList');
+                list.innerHTML = '';
+                bots.forEach(bot => {
+                    list.innerHTML += `
+                        <div class="bot-card">
+                            <h3>🕹️ ${bot.username}</h3>
+                            <div class="bot-info">
+                                <p><strong>🌍 السيرفر:</strong> ${bot.host}:${bot.port}</p>
+                                <p><strong>📊 الحالة:</strong> <span class="status">${bot.status}</span></p>
+                                <p><strong>⏱️ مدة الاتصال:</strong> ${bot.uptime}</p>
+                                <p><strong>📍 الإحداثيات:</strong> <span dir="ltr">${bot.coordinates}</span></p>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <button class="start" onclick="startBot('${bot.id}')">▶ تشغيل البوت</button>
+                                <button class="stop" onclick="stopBot('${bot.id}')">⏹ إيقاف البوت</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (error) {
+                console.error("Error fetching bots");
+            }
         }
 
         async function addBot() {
             const username = document.getElementById('username').value;
             const host = document.getElementById('host').value;
             const port = document.getElementById('port').value;
+            if(!username || !host) return alert("الرجاء إدخال اسم البوت وآيبي السيرفر");
+            
             await fetch('/api/bots', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, host, port })
             });
+            
+            document.getElementById('username').value = '';
+            document.getElementById('host').value = '';
             fetchBots();
         }
 
@@ -70,8 +95,8 @@
             fetchBots();
         }
 
-        // تحديث البيانات كل 5 ثواني
-        setInterval(fetchBots, 5000);
+        // تحديث البيانات كل 3 ثواني لتكون أسرع
+        setInterval(fetchBots, 3000);
         fetchBots();
     </script>
 </body>
