@@ -1,161 +1,142 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم بوتات Bedrock</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e2f; color: #fff; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: auto; }
-        h1 { text-align: center; color: #4CAF50; }
-        .card { background: #2a2a40; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        input { padding: 10px; margin: 5px 0; width: calc(100% - 22px); border-radius: 5px; border: 1px solid #444; background: #1e1e2f; color: white; }
-        button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 5px; transition: 0.2s;}
-        button:hover { opacity: 0.8; }
-        .btn-add { background-color: #4CAF50; color: white; width: 100%; margin-top: 10px; }
-        .btn-start { background-color: #4CAF50; color: white; }
-        .btn-stop { background-color: #f44336; color: white; }
-        .btn-edit { background-color: #2196F3; color: white; }
-        .btn-delete { background-color: #9e9e9e; color: white; }
-        .bot-item { background: #3f3f5a; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; flex-direction: column;}
-        .bot-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .bot-info { flex-grow: 1; }
-        .bot-actions { display: flex; gap: 5px; }
-        .status-online { color: #4CAF50; font-weight: bold; }
-        .status-offline { color: #f44336; font-weight: bold; }
-        .status-connecting { color: #ffeb3b; font-weight: bold; }
-        .msa-box { background-color: #ff9800; color: #000; padding: 10px; border-radius: 5px; margin-top: 10px; text-align: center; font-weight: bold; }
-        .msa-code { background: #000; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 1.2em; letter-spacing: 2px; }
-        .msa-link { color: #000; text-decoration: underline; }
-    </style>
-</head>
-<body>
+const bedrock = require('bedrock-protocol');
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 
-<div class="container">
-    <h1>🤖 لوحة تحكم بوتات Bedrock</h1>
-    
-    <div class="card">
-        <h3>إضافة بوت جديد للقائمة</h3>
-        <input type="text" id="botUsername" placeholder="اسم البوت">
-        <input type="text" id="serverIp" placeholder="آيبي السيرفر">
-        <input type="number" id="serverPort" placeholder="البورت (الافتراضي: 19132)" value="19132">
-        <button class="btn-add" onclick="addBot()">💾 حفظ البوت في القائمة</button>
-    </div>
+const app = express();
+app.use(express.json());
+app.use(cors());
 
-    <div class="card">
-        <h3>البوتات المحفوظة</h3>
-        <div id="botsList"></div>
-    </div>
-</div>
+const botsManager = new Map();
 
-<script>
-    async function fetchBots() {
-        try {
-            const response = await fetch('/api/bots');
-            const bots = await response.json();
-            const botsList = document.getElementById('botsList');
-            botsList.innerHTML = '';
+function startMinecraftBot(botId) {
+    const botData = botsManager.get(botId);
+    if (!botData || botData.status === 'Online' || botData.status === 'Connecting...') return;
 
-            if (bots.length === 0) {
-                botsList.innerHTML = '<p style="text-align: center; color: #aaa;">لا توجد بوتات محفوظة حالياً.</p>';
-                return;
+    botData.status = 'Connecting...';
+    botData.uptime = 0;
+    botData.msaCode = null;
+    botData.msaUrl = null;
+    const startTime = Date.now();
+
+    try {
+        const client = bedrock.createClient({
+            host: botData.serverIp,
+            port: botData.port,
+            username: botData.username,
+            offline: false, 
+            
+            // التعديل هنا: دعمنا كل أسماء المتغيرات اللي ممكن ترسلها المكتبة
+            onMsaCode: (response) => {
+                botData.status = 'يطلب تسجيل دخول 👇';
+                botData.msaCode = response.userCode || response.user_code || 'الكود_غير_معروف';
+                botData.msaUrl = response.verificationUri || response.verification_uri || 'https://www.microsoft.com/link';
+                
+                // ضفتها هنا كاحتياط لو احتجت تشوفها في Render
+                console.log(`[MSA] URL: ${botData.msaUrl} | CODE: ${botData.msaCode}`);
             }
-
-            bots.forEach(bot => {
-                let statusClass = 'status-offline';
-                if (bot.status === 'Online') statusClass = 'status-online';
-                if (bot.status === 'Connecting...' || bot.status.includes('يطلب')) statusClass = 'status-connecting';
-
-                let buttonsHtml = '';
-                if (bot.status === 'Offline' || bot.status.includes('مفصول') || bot.status.includes('خطأ')) {
-                    buttonsHtml += `<button class="btn-start" onclick="startBot('${bot.id}')">تشغيل ▶</button>`;
-                    buttonsHtml += `<button class="btn-edit" onclick="editBot('${bot.id}', '${bot.username}', '${bot.serverIp}', ${bot.port})">تعديل ✏️</button>`;
-                } else {
-                    buttonsHtml += `<button class="btn-stop" onclick="stopBot('${bot.id}')">إيقاف 🛑</button>`;
-                }
-                buttonsHtml += `<button class="btn-delete" onclick="deleteBot('${bot.id}')">حذف 🗑️</button>`;
-
-                // كود إظهار مربع التوثيق
-                let msaHtml = '';
-                if (bot.msaCode && bot.msaUrl) {
-                    msaHtml = `
-                    <div class="msa-box">
-                        ⚠️ السيرفر يطلب حساب مايكروسوفت (Xbox) للدخول ⚠️<br>
-                        1. افتح هذا الرابط: <a href="${bot.msaUrl}" target="_blank" class="msa-link">${bot.msaUrl}</a><br>
-                        2. أدخل هذا الكود: <span class="msa-code">${bot.msaCode}</span>
-                    </div>`;
-                }
-
-                botsList.innerHTML += `
-                    <div class="bot-item">
-                        <div class="bot-header">
-                            <div class="bot-info">
-                                <strong>${bot.username}</strong> | السيرفر: ${bot.serverIp}:${bot.port} | <span class="${statusClass}">${bot.status}</span><br>
-                                <small>الإحداثيات: X:${bot.coordinates.x} Y:${bot.coordinates.y} Z:${bot.coordinates.z}</small> | <small>مدة الاتصال: ${bot.uptime} ثانية</small>
-                            </div>
-                            <div class="bot-actions">
-                                ${buttonsHtml}
-                            </div>
-                        </div>
-                        ${msaHtml}
-                    </div>
-                `;
-            });
-        } catch (err) { console.error(err); }
-    }
-
-    async function addBot() {
-        const username = document.getElementById('botUsername').value;
-        const host = document.getElementById('serverIp').value;
-        const port = document.getElementById('serverPort').value;
-        
-        if (!username || !host) return alert('أدخل الاسم والآيبي!');
-
-        const botId = 'bot_' + Date.now();
-        await fetch('/api/bots/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: botId, username, host, port: parseInt(port) })
         });
-        
-        document.getElementById('botUsername').value = ''; 
-        fetchBots();
-    }
 
-    async function startBot(id) {
-        await fetch('/api/bots/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-        fetchBots();
-    }
+        botData.client = client;
 
-    async function stopBot(id) {
-        await fetch('/api/bots/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-        fetchBots();
-    }
-
-    async function deleteBot(id) {
-        if(!confirm('هل أنت متأكد من حذف هذا البوت نهائياً؟')) return;
-        await fetch('/api/bots/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-        fetchBots();
-    }
-
-    async function editBot(id, oldUser, oldIp, oldPort) {
-        const newUsername = prompt("تعديل اسم البوت:", oldUser);
-        if(newUsername === null) return;
-        const newIp = prompt("تعديل آيبي السيرفر:", oldIp);
-        if(newIp === null) return;
-        const newPort = prompt("تعديل البورت:", oldPort);
-        if(newPort === null) return;
-
-        await fetch('/api/bots/edit', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ id, username: newUsername, host: newIp, port: parseInt(newPort) }) 
+        client.on('spawn', () => {
+            botData.status = 'Online';
+            botData.msaCode = null; 
+            botData.msaUrl = null;
+            console.log(`${botData.username} spawned in the server!`);
         });
-        fetchBots();
-    }
 
-    setInterval(fetchBots, 3000);
-    fetchBots();
-</script>
-</body>
-</html>
+        client.on('position', (pos) => {
+            botData.coordinates = { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) };
+        });
+
+        client.on('disconnect', (packet) => {
+            const reason = packet?.message || packet?.reason || 'تم الطرد من السيرفر';
+            botData.status = `مفصول: ${reason}`;
+            clearAllTimers(botData);
+        });
+
+        client.on('error', (err) => {
+            botData.status = `خطأ: ${err.message}`;
+            clearAllTimers(botData);
+        });
+
+        client.on('close', () => {
+            if (botData.status === 'Online' || botData.status === 'Connecting...') {
+                botData.status = 'Offline';
+            }
+            clearAllTimers(botData);
+        });
+
+        botData.uptimeInterval = setInterval(() => {
+            if (botData.status === 'Online') {
+                botData.uptime = Math.floor((Date.now() - startTime) / 1000);
+            }
+        }, 1000);
+
+        botData.reconnectTimer = setTimeout(() => {
+            if(botData.status === 'Online') {
+                client.disconnect();
+                setTimeout(() => startMinecraftBot(botId), 10000); 
+            }
+        }, 20 * 60 * 1000);
+
+    } catch (err) {
+        botData.status = `خطأ النظام: ${err.message}`;
+    }
+}
+
+function clearAllTimers(botData) {
+    clearInterval(botData.uptimeInterval);
+    clearTimeout(botData.reconnectTimer);
+}
+
+function stopMinecraftBot(botId) {
+    const botData = botsManager.get(botId);
+    if (botData && botData.client) {
+        clearAllTimers(botData);
+        botData.client.disconnect();
+        botData.status = 'Offline';
+        botData.msaCode = null;
+        botData.msaUrl = null;
+    }
+}
+
+// --- API ROUTES ---
+
+app.get('/', (req, res) => { res.sendFile(path.join(__dirname, 'index.html')); });
+
+app.get('/api/bots', (req, res) => {
+    const botsList = Array.from(botsManager.values()).map(bot => {
+        const { client, reconnectTimer, uptimeInterval, ...safeData } = bot;
+        return safeData;
+    });
+    res.json(botsList);
+});
+
+app.post('/api/bots/add', (req, res) => {
+    const { id, username, host, port } = req.body;
+    if (!id || !username || !host) return res.status(400).json({ error: 'Missing data' });
+    
+    botsManager.set(id, {
+        id, username, serverIp: host, port: port || 19132,
+        status: 'Offline', coordinates: { x: 0, y: 0, z: 0 }, uptime: 0,
+        msaCode: null, msaUrl: null,
+        client: null, reconnectTimer: null, uptimeInterval: null
+    });
+    res.json({ message: 'Bot added.' });
+});
+
+app.post('/api/bots/start', (req, res) => { startMinecraftBot(req.body.id); res.json({ message: 'Bot starting...' }); });
+app.post('/api/bots/stop', (req, res) => { stopMinecraftBot(req.body.id); res.json({ message: 'Bot stopped.' }); });
+app.post('/api/bots/delete', (req, res) => { stopMinecraftBot(req.body.id); botsManager.delete(req.body.id); res.json({ message: 'Bot deleted.' }); });
+app.post('/api/bots/edit', (req, res) => {
+    const bot = botsManager.get(req.body.id);
+    if (bot && !bot.status.includes('Online') && !bot.status.includes('Connecting')) {
+        bot.username = req.body.username; bot.serverIp = req.body.host; bot.port = req.body.port;
+        res.json({ message: 'Bot updated.' });
+    } else { res.status(400).json({ error: 'Stop the bot before editing.' }); }
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => { console.log(`Dashboard running on port ${PORT}`); });
