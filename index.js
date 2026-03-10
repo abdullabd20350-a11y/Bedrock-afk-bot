@@ -24,7 +24,7 @@ function startMinecraftBot(botId) {
             host: botData.serverIp,
             port: botData.port,
             username: botData.username,
-            offline: true
+            offline: false
         });
 
         botData.client = client;
