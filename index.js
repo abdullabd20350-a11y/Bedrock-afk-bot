@@ -12,6 +12,7 @@ let botsData = {};
 let botClients = {}; 
 let reconnectTimers = {}; 
 
+// دالة حفظ البيانات (تعدل فقط عند الإضافة أو الحذف اليدوي)
 function saveData() {
     const dataToSave = {};
     Object.keys(botsData).forEach(id => {
@@ -30,20 +31,13 @@ function loadData() {
     if (fs.existsSync(DATA_FILE)) {
         try {
             const raw = fs.readFileSync(DATA_FILE);
-            const loaded = JSON.parse(raw);
-            Object.keys(loaded).forEach(id => {
-                botsData[id] = {
-                    ...loaded[id],
-                    status: 'متوقف',
-                    coordinates: 'غير متوفر',
-                    connectedAt: null
-                };
-                if (botsData[id].shouldBeRunning) {
-                    setTimeout(() => startBot(id), 3000);
-                }
+            botsData = JSON.parse(raw);
+            Object.keys(botsData).forEach(id => {
+                botsData[id].status = 'متوقف';
+                botsData[id].coordinates = 'غير متوفر';
+                if (botsData[id].shouldBeRunning) setTimeout(() => startBot(id), 2000);
             });
-            console.log("✅ تم تحميل البيانات.");
-        } catch (e) { console.error("❌ خطأ تحميل:", e); }
+        } catch (e) { console.error("خطأ في تحميل البيانات:", e); botsData = {}; }
     }
 }
 
@@ -51,75 +45,84 @@ function startBot(id) {
     const botInfo = botsData[id];
     if (!botInfo) return;
 
+    // تنظيف أي محاولة اتصال سابقة لتجنب تداخل المستمعين (Listeners)
     if (botClients[id]) {
         try { botClients[id].disconnect(); } catch (e) {}
+        delete botClients[id];
     }
+
+    botInfo.status = 'جاري محاولة الاتصال...';
+    botInfo.shouldBeRunning = true;
+    saveData();
 
     try {
         const client = bedrock.createClient({
             host: botInfo.host,
-            port: parseInt(botInfo.port),
+            port: parseInt(botInfo.port) || 19132,
             username: botInfo.username,
-            offline: true
+            offline: true,
+            connectTimeout: 10000 // مهلة الاتصال
         });
 
         botClients[id] = client;
-        botInfo.status = 'جاري الاتصال...';
-        botInfo.shouldBeRunning = true;
-        saveData();
 
         client.on('join', () => {
             botInfo.status = 'متصل ✅';
-            botInfo.connectedAt = Date.now();
+            console.log(`[${botInfo.username}] دخل السيرفر.`);
         });
 
+        // التقاط الإحداثيات وتجاهل القيم الوهمية
         const handlePos = (pos) => {
             if (pos && Math.abs(pos.y) < 30000) {
                 botInfo.coordinates = `X: ${Math.floor(pos.x)}, Y: ${Math.floor(pos.y)}, Z: ${Math.floor(pos.z)}`;
             }
         };
-
         client.on('start_game', (pkt) => handlePos(pkt.player_position));
         client.on('move_player', (pkt) => handlePos(pkt.position));
 
-        client.on('close', () => {
-            botInfo.status = 'غير متصل ❌';
-            botInfo.coordinates = 'غير متوفر';
+        // معالجة الخطأ أو الطرد أو قفل السيرفر
+        client.on('error', (err) => {
+            console.error(`[خطأ - ${botInfo.username}]: ${err.message}`);
+            botInfo.status = 'فشل (إعادة محاولة...)';
         });
 
-        if (reconnectTimers[id]) clearInterval(reconnectTimers[id]);
-        reconnectTimers[id] = setInterval(() => {
+        client.on('close', () => {
+            botInfo.coordinates = 'غير متوفر';
+            // إذا كان البوت مضبوطاً للعمل، يحاول مجدداً بعد 5 ثواني للأبد
             if (botInfo.shouldBeRunning) {
-                console.log(`🔄 إعادة اتصال: ${botInfo.username}`);
-                startBot(id);
+                botInfo.status = 'السيرفر مغلق (إعادة محاولة...)';
+                setTimeout(() => {
+                    if (botInfo.shouldBeRunning) startBot(id);
+                }, 5000);
+            } else {
+                botInfo.status = 'منفصل ❌';
             }
-        }, 20 * 60 * 1000);
+        });
 
-    } catch (e) { botInfo.status = 'فشل الاتصال'; }
+    } catch (e) {
+        console.error(`[فشل فوري]: ${e.message}`);
+        if (botInfo.shouldBeRunning) {
+            setTimeout(() => startBot(id), 5000);
+        }
+    }
 }
 
 function stopBot(id) {
-    if (reconnectTimers[id]) clearInterval(reconnectTimers[id]);
-    if (botClients[id]) {
-        try { botClients[id].disconnect(); } catch(e) {}
-        delete botClients[id];
-    }
     if (botsData[id]) {
-        botsData[id].status = 'متوقف';
         botsData[id].shouldBeRunning = false;
+        botsData[id].status = 'متوقف';
         botsData[id].coordinates = 'غير متوفر';
         saveData();
     }
+    if (botClients[id]) {
+        try { botClients[id].disconnect(); } catch (e) {}
+        delete botClients[id];
+    }
 }
 
-// --- مسارات الـ API المعدلة ---
-
+// واجهات الـ API
 app.get('/api/bots', (req, res) => {
-    const list = Object.values(botsData).map(b => {
-        const uptime = b.connectedAt ? Math.floor((Date.now() - b.connectedAt) / 60000) : 0;
-        return { ...b, uptime: `${uptime} دقيقة` };
-    });
-    res.json(list);
+    res.json(Object.values(botsData));
 });
 
 app.post('/api/bots', (req, res) => {
@@ -133,15 +136,13 @@ app.post('/api/bots', (req, res) => {
 app.post('/api/bots/:id/start', (req, res) => { startBot(req.params.id); res.json({ success: true }); });
 app.post('/api/bots/:id/stop', (req, res) => { stopBot(req.params.id); res.json({ success: true }); });
 
-// 🟢 دالة الحذف النهائية
 app.delete('/api/bots/:id', (req, res) => {
     const id = req.params.id;
-    console.log(`🗑️ حذف البوت: ${id}`);
-    stopBot(id); // إيقاف البوت أولاً
-    delete botsData[id]; // مسحه من الذاكرة
-    saveData(); // تحديث ملف الحفظ
+    stopBot(id);
+    delete botsData[id];
+    saveData();
     res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => { loadData(); console.log(`الخادم يعمل على ${PORT}`); });
+app.listen(PORT, () => { loadData(); console.log(`الخادم يعمل على المنفذ ${PORT}`); });
