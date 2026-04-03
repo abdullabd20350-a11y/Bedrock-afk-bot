@@ -68,7 +68,8 @@ function startBot(id) {
             port: parseInt(botInfo.port) || 19132,
             username: botInfo.username,
             offline: true,
-            connectTimeout: 20000 // زيادة مهلة الانتظار لـ 20 ثانية
+            version: '1.26.12', // 🟢 تم تثبيت الإصدار هنا ليتطابق مع سيرفرك ويمنع الطرد
+            connectTimeout: 20000 
         });
 
         botClients[id] = client;
@@ -106,12 +107,11 @@ function startBot(id) {
                 // تنظيف الكائن قبل المحاولة التالية
                 delete botClients[id];
                 
-                // استخدام setTimeout لضمان عدم تداخل الطلبات
                 setTimeout(() => {
                     if (botsData[id] && botsData[id].shouldBeRunning) {
                         startBot(id);
                     }
-                }, 10000); // 10 ثوانٍ للسماح للسيرفر بمسح الجلسة
+                }, 10000); 
             } else {
                 botInfo.status = 'متوقف';
             }
