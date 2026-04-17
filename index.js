@@ -21,7 +21,7 @@ function loadData() {
                 botsData[id].status = 'متوقف';
                 botsData[id].coordinates = 'غير متوفر';
                 botsData[id].connectedAt = null;
-                // تشغيل البوتات التي كانت تعمل قبل إعادة تشغيل السيرفر
+                // إذا كان البوت مضبوطاً للعمل، نشغله بعد مهلة بسيطة
                 if (botsData[id].shouldBeRunning) {
                     setTimeout(() => startBot(id), 5000);
                 }
@@ -48,9 +48,11 @@ function startBot(id) {
     const botInfo = botsData[id];
     if (!botInfo) return;
 
-    // تنظيف أي جلسة سابقة لتجنب التداخل
+    // 1. تنظيف أي جلسة سابقة تماماً قبل أي محاولة جديدة
     if (botClients[id]) {
-        try { botClients[id].disconnect(); } catch (e) {}
+        try {
+            botClients[id].disconnect();
+        } catch (e) {}
         delete botClients[id];
     }
 
@@ -61,15 +63,12 @@ function startBot(id) {
     try {
         console.log(`[${botInfo.username}] محاولة اتصال بـ ${botInfo.host}:${botInfo.port}`);
         
-        // 🟢 إعدادات الاتصال الجديدة (التمويه)
         const client = bedrock.createClient({
             host: botInfo.host,
             port: parseInt(botInfo.port) || 19132,
             username: botInfo.username,
-            offline: true, 
-            version: '1.26.12', // تم تثبيت الإصدار ليتطابق مع سيرفرك
-            deviceOS: 1, // 🟢 تمويه الجهاز: 1 يعني أندرويد (لتخطي الحماية)
-            connectTimeout: 20000 
+            offline: true,
+            connectTimeout: 20000 // زيادة مهلة الانتظار لـ 20 ثانية
         });
 
         botClients[id] = client;
@@ -80,6 +79,7 @@ function startBot(id) {
             console.log(`[${botInfo.username}] دخل السيرفر بنجاح.`);
         });
 
+        // التعامل مع الإحداثيات
         client.on('start_game', (pkt) => {
             const pos = pkt.player_position;
             if (pos && Math.abs(pos.y) < 30000) {
@@ -87,12 +87,14 @@ function startBot(id) {
             }
         });
 
+        // 2. معالجة الخطأ وإعادة المحاولة
         client.on('error', (err) => {
             console.log(`[خطأ - ${botInfo.username}]: ${err.message}`);
             botInfo.status = 'فشل (إعادة محاولة...)';
             botInfo.connectedAt = null;
         });
 
+        // 3. معالجة الإغلاق وإعادة المحاولة الذكية
         client.on('close', () => {
             botInfo.coordinates = 'غير متوفر';
             botInfo.connectedAt = null;
@@ -101,14 +103,15 @@ function startBot(id) {
                 console.log(`[${botInfo.username}] انقطع الاتصال. سأحاول مجدداً بعد 10 ثوانٍ...`);
                 botInfo.status = 'إعادة اتصال...';
                 
+                // تنظيف الكائن قبل المحاولة التالية
                 delete botClients[id];
                 
-                // إعادة المحاولة الذكية بعد 10 ثوانٍ
+                // استخدام setTimeout لضمان عدم تداخل الطلبات
                 setTimeout(() => {
                     if (botsData[id] && botsData[id].shouldBeRunning) {
                         startBot(id);
                     }
-                }, 10000); 
+                }, 10000); // 10 ثوانٍ للسماح للسيرفر بمسح الجلسة
             } else {
                 botInfo.status = 'متوقف';
             }
@@ -135,8 +138,7 @@ function stopBot(id) {
     }
 }
 
-// --- واجهات الـ API ---
-
+// واجهات الـ API
 app.get('/api/bots', (req, res) => {
     const list = Object.values(botsData).map(b => {
         let uptimeStr = "0 دقيقة";
@@ -162,8 +164,8 @@ app.post('/api/bots/:id/stop', (req, res) => { stopBot(req.params.id); res.json(
 
 app.delete('/api/bots/:id', (req, res) => {
     const id = req.params.id;
-    stopBot(id); // نوقف البوت أولاً
-    delete botsData[id]; // ثم نحذفه
+    stopBot(id);
+    delete botsData[id];
     saveData();
     res.json({ success: true });
 });
