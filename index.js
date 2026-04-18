@@ -11,7 +11,6 @@ const DATA_FILE = path.join(__dirname, 'bots_config.json');
 let botsData = {}; 
 let botClients = {}; 
 
-// تحميل البيانات عند البدء
 function loadData() {
     if (fs.existsSync(DATA_FILE)) {
         try {
@@ -21,10 +20,7 @@ function loadData() {
                 botsData[id].status = 'متوقف';
                 botsData[id].coordinates = 'غير متوفر';
                 botsData[id].connectedAt = null;
-                // إذا كان البوت مضبوطاً للعمل، نشغله بعد مهلة بسيطة
-                if (botsData[id].shouldBeRunning) {
-                    setTimeout(() => startBot(id), 5000);
-                }
+                if (botsData[id].shouldBeRunning) setTimeout(() => startBot(id), 5000);
             });
         } catch (e) { botsData = {}; }
     }
@@ -48,38 +44,36 @@ function startBot(id) {
     const botInfo = botsData[id];
     if (!botInfo) return;
 
-    // 1. تنظيف أي جلسة سابقة تماماً قبل أي محاولة جديدة
     if (botClients[id]) {
-        try {
-            botClients[id].disconnect();
-        } catch (e) {}
+        try { botClients[id].disconnect(); } catch (e) {}
         delete botClients[id];
     }
 
-    botInfo.status = 'جاري الاتصال...';
+    botInfo.status = 'جاري المصادقة (شاهد Logs)...'; // 🟢 رسالة تنبيه للمستخدم
     botInfo.shouldBeRunning = true;
     saveData();
 
     try {
-        console.log(`[${botInfo.username}] محاولة اتصال بـ ${botInfo.host}:${botInfo.port}`);
+        console.log(`[${botInfo.username}] محاولة الدخول بحساب مايكروسوفت رسمي...`);
         
         const client = bedrock.createClient({
             host: botInfo.host,
             port: parseInt(botInfo.port) || 19132,
-            username: botInfo.username,
-            offline: true,
-            connectTimeout: 20000 // زيادة مهلة الانتظار لـ 20 ثانية
+            username: botInfo.username, // السيرفر سيستخدم اسم حساب الإكس بوكس لاحقاً
+            // 🟢 السلاح السري: تحويل البوت للاعب شرعي
+            offline: false, 
+            version: '1.26.12', 
+            connectTimeout: 30000 // زيادة الوقت لأن المصادقة تأخذ وقتاً
         });
 
         botClients[id] = client;
 
         client.on('join', () => {
-            botInfo.status = 'متصل ✅';
+            botInfo.status = 'متصل ✅ (رسمي)';
             botInfo.connectedAt = Date.now();
-            console.log(`[${botInfo.username}] دخل السيرفر بنجاح.`);
+            console.log(`[${botInfo.username}] دخل السيرفر كلاعب شرعي بنجاح!`);
         });
 
-        // التعامل مع الإحداثيات
         client.on('start_game', (pkt) => {
             const pos = pkt.player_position;
             if (pos && Math.abs(pos.y) < 30000) {
@@ -87,31 +81,20 @@ function startBot(id) {
             }
         });
 
-        // 2. معالجة الخطأ وإعادة المحاولة
         client.on('error', (err) => {
             console.log(`[خطأ - ${botInfo.username}]: ${err.message}`);
             botInfo.status = 'فشل (إعادة محاولة...)';
             botInfo.connectedAt = null;
         });
 
-        // 3. معالجة الإغلاق وإعادة المحاولة الذكية
         client.on('close', () => {
             botInfo.coordinates = 'غير متوفر';
             botInfo.connectedAt = null;
-            
             if (botInfo.shouldBeRunning) {
-                console.log(`[${botInfo.username}] انقطع الاتصال. سأحاول مجدداً بعد 10 ثوانٍ...`);
+                console.log(`[${botInfo.username}] انقطع الاتصال. محاولة جديدة بعد 15 ثانية...`);
                 botInfo.status = 'إعادة اتصال...';
-                
-                // تنظيف الكائن قبل المحاولة التالية
                 delete botClients[id];
-                
-                // استخدام setTimeout لضمان عدم تداخل الطلبات
-                setTimeout(() => {
-                    if (botsData[id] && botsData[id].shouldBeRunning) {
-                        startBot(id);
-                    }
-                }, 10000); // 10 ثوانٍ للسماح للسيرفر بمسح الجلسة
+                setTimeout(() => { if (botsData[id] && botsData[id].shouldBeRunning) startBot(id); }, 15000); 
             } else {
                 botInfo.status = 'متوقف';
             }
@@ -119,9 +102,7 @@ function startBot(id) {
 
     } catch (e) {
         console.log(`[فشل التشغيل - ${botInfo.username}]: ${e.message}`);
-        setTimeout(() => {
-            if (botsData[id] && botsData[id].shouldBeRunning) startBot(id);
-        }, 10000);
+        setTimeout(() => { if (botsData[id] && botsData[id].shouldBeRunning) startBot(id); }, 15000);
     }
 }
 
@@ -138,11 +119,10 @@ function stopBot(id) {
     }
 }
 
-// واجهات الـ API
 app.get('/api/bots', (req, res) => {
     const list = Object.values(botsData).map(b => {
         let uptimeStr = "0 دقيقة";
-        if (b.connectedAt && b.status === 'متصل ✅') {
+        if (b.connectedAt && b.status.includes('متصل')) {
             const minutes = Math.floor((Date.now() - b.connectedAt) / 60000);
             uptimeStr = `${minutes} دقيقة`;
         }
