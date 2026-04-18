@@ -49,29 +49,29 @@ function startBot(id) {
         delete botClients[id];
     }
 
-    botInfo.status = 'جاري المصادقة (شاهد Logs)...'; // 🟢 رسالة تنبيه للمستخدم
+    botInfo.status = 'جاري الاتصال المباشر...';
     botInfo.shouldBeRunning = true;
     saveData();
 
     try {
-        console.log(`[${botInfo.username}] محاولة الدخول بحساب مايكروسوفت رسمي...`);
+        console.log(`[${botInfo.username}] محاولة الدخول المباشر (بدون Ping)...`);
         
         const client = bedrock.createClient({
             host: botInfo.host,
             port: parseInt(botInfo.port) || 19132,
-            username: botInfo.username, // السيرفر سيستخدم اسم حساب الإكس بوكس لاحقاً
-            // 🟢 السلاح السري: تحويل البوت للاعب شرعي
-            offline: false, 
+            username: botInfo.username,
+            offline: true, // أعدناها أوفلاين لتسهيل الدخول دون حسابات مايكروسوفت
             version: '1.26.12', 
-            connectTimeout: 30000 // زيادة الوقت لأن المصادقة تأخذ وقتاً
+            skipPing: true, // 🚀 هذا هو السلاح السري: تخطي فحص السيرفر والدخول فوراً
+            connectTimeout: 30000 
         });
 
         botClients[id] = client;
 
         client.on('join', () => {
-            botInfo.status = 'متصل ✅ (رسمي)';
+            botInfo.status = 'متصل ✅';
             botInfo.connectedAt = Date.now();
-            console.log(`[${botInfo.username}] دخل السيرفر كلاعب شرعي بنجاح!`);
+            console.log(`[${botInfo.username}] دخل السيرفر بنجاح!`);
         });
 
         client.on('start_game', (pkt) => {
@@ -91,10 +91,10 @@ function startBot(id) {
             botInfo.coordinates = 'غير متوفر';
             botInfo.connectedAt = null;
             if (botInfo.shouldBeRunning) {
-                console.log(`[${botInfo.username}] انقطع الاتصال. محاولة جديدة بعد 15 ثانية...`);
+                console.log(`[${botInfo.username}] انقطع الاتصال. محاولة جديدة بعد 10 ثواني...`);
                 botInfo.status = 'إعادة اتصال...';
                 delete botClients[id];
-                setTimeout(() => { if (botsData[id] && botsData[id].shouldBeRunning) startBot(id); }, 15000); 
+                setTimeout(() => { if (botsData[id] && botsData[id].shouldBeRunning) startBot(id); }, 10000); 
             } else {
                 botInfo.status = 'متوقف';
             }
@@ -102,7 +102,7 @@ function startBot(id) {
 
     } catch (e) {
         console.log(`[فشل التشغيل - ${botInfo.username}]: ${e.message}`);
-        setTimeout(() => { if (botsData[id] && botsData[id].shouldBeRunning) startBot(id); }, 15000);
+        setTimeout(() => { if (botsData[id] && botsData[id].shouldBeRunning) startBot(id); }, 10000);
     }
 }
 
